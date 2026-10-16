@@ -44,6 +44,16 @@ def test_build_config_all_combos(model, scale, profile):
     assert cfg["path"]["pretrain_network_g"] is None  # none set in the request
 
 
+@requires_repo
+def test_perceptual_metrics_are_opt_in():
+    off = build_config(_req(), REPO)
+    assert "dists" not in off["val"].get("metrics", {})
+    assert "lpips" not in off["val"].get("metrics", {})
+    on = build_config(_req(val_perceptual_metrics=True), REPO)
+    assert on["val"]["metrics"]["dists"]["type"] == "calculate_dists"
+    assert on["val"]["metrics"]["lpips"]["type"] == "calculate_lpips"
+
+
 def test_lq_size_is_multiple_of_window():
     for model in ("HEART", "NERVE"):
         step = ARCH[model]["window"]

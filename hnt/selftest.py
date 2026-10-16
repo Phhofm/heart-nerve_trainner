@@ -30,40 +30,31 @@ class SelfTestResult:
 _SMOKE_ITERS = 100
 
 
-def _demo_dirs(repo: Path) -> tuple[Path, Path] | None:
+def _demo_dir(repo: Path) -> Path | None:
     hr = repo / "datasets/train/dataset1"
-    val = repo / "datasets/val/dataset1"
-    if hr.is_dir() and val.is_dir() and any(hr.iterdir()):
-        return hr, val
+    if hr.is_dir() and any(hr.iterdir()):
+        return hr
     return None
 
 
 def run_selftest(paths: Paths, python_exe: str | None = None, on_log=lambda m: None) -> SelfTestResult:
     python_exe = python_exe or sys.executable
-    demo = _demo_dirs(paths.repo)
-    if demo is None:
+    hr = _demo_dir(paths.repo)
+    if hr is None:
         return SelfTestResult(False, "find-demo-data", detail="bundled demo dataset missing")
 
-    hr, val = demo
     run_name = "hnt_selftest"
     run_dir = paths.repo / "experiments" / run_name
 
+    # OTF + clean bicubic on the bundled demo images. build_config applies the
+    # degradation knobs at the config root, and the RELEASE template already brings
+    # a valid validation set (Urban100), so nothing else needs patching.
     req = TrainRequest(
-        model="NERVE", scale=2, profile="FIDELITY", data_mode="PAIRED",
-        hr_dir=str(hr), lr_dir=str(hr),          # placeholders patched below
-        val_hr_dir=str(val), val_lr_dir=str(val),
+        model="NERVE", scale=2, profile="FIDELITY", data_mode="OTF",
+        hr_dir=str(hr), degradation="bicubic",
         batch=2, lq_size=64, iters=_SMOKE_ITERS, name=run_name, use_compile=False,
     )
     cfg = build_config(req, paths.repo)
-    # For the smoke test we lack paired LR, so degrade on the fly (clean bicubic).
-    ds = cfg["datasets"]["train"]
-    ds["type"] = "realesrgandataset"
-    ds.pop("dataroot_lq", None)
-    ds.update({"blur_prob": 0.0, "resize_prob": [0.0, 1.0, 0.0],
-               "resize_mode_list": ["bicubic"], "resize_mode_prob": [1.0],
-               "resize_range": [1.0, 1.0], "gaussian_noise_prob": 0.0, "jpeg_prob": 0.0,
-               "final_sinc_prob": 0.0, "lq_size": 64, "batch_size_per_gpu": 2})
-    cfg["datasets"]["val"]["filename_tmpl"] = "{}x2"
     cfg["logger"]["save_checkpoint_freq"] = 50
     cfg["logger"]["print_freq"] = 25
     cfg["val"]["val_freq"] = 50
@@ -81,7 +72,8 @@ def run_selftest(paths: Paths, python_exe: str | None = None, on_log=lambda m: N
     if rc != 0:
         return SelfTestResult(False, "train", tail, f"training exited {rc}")
 
-    ckpts = sorted((run_dir / "models").glob("net_g_ema_*.safetensors"))
+    ckpts = sorted((run_dir / "models").glob("net_g_ema_*.safetensors")) or sorted(
+        (run_dir / "models").glob("net_g_*.safetensors"))
     if not ckpts:
         return SelfTestResult(False, "save-checkpoint", tail, "no checkpoint written")
 

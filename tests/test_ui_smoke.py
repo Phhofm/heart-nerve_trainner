@@ -50,3 +50,29 @@ def test_main_window_constructs_and_plots(qapp):
     win.chart.add_point("ssim", 100, 0.85)
     assert win.chart._ys["ssim"] == [0.85]
     win.close()
+
+
+def test_defaults_nerve_2x_fidelity_are_recommended(qapp):
+    from hnt.paths import find_repo
+    from hnt.ui.main_window import MainWindow
+
+    try:
+        find_repo()
+    except FileNotFoundError:
+        pytest.skip("traiNNer checkout not found")
+
+    win = MainWindow()
+    assert win.model.currentData() == "NERVE"
+    assert win.scale.currentData() == 2
+    assert win.profile.currentData() == "FIDELITY"
+    assert win.data_mode.currentData() == "OTF"
+    assert win.model.property("recommended") is True
+    assert win.scale.property("recommended") is True
+    assert win.profile.property("recommended") is True
+    req = win._request()
+    assert (req.model, req.scale, req.profile, req.data_mode) == ("NERVE", 2, "FIDELITY", "OTF")
+    assert req.name == "NERVE_2x_run"
+    # Choosing HEART drops the recommended marking.
+    win.model.setCurrentIndex(1)
+    assert win.model.property("recommended") is False
+    win.close()

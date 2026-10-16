@@ -70,6 +70,7 @@ QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox {{
 QComboBox:hover, QLineEdit:hover, QSpinBox:hover, QDoubleSpinBox:hover,
 QComboBox:focus, QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {{ border-color: {ACCENT}; }}
 QComboBox::drop-down {{ border: none; width: 20px; }}
+QComboBox[recommended="true"] {{ border: 1px solid {OK}; }}
 QComboBox QAbstractItemView {{
   background: {PANEL2}; border: 1px solid {LINE}; outline: none;
   selection-background-color: {ACCENT}; selection-color: #0b0d12;

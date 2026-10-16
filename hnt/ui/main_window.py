@@ -26,7 +26,7 @@ from ..diagnostics import help_prompt, system_report
 from ..downloader import download_lucid, lucid_hr_dir, lucid_home
 from ..hardware import detect
 from ..paths import get_paths
-from ..presets import ARCH, PROFILES, SCALES, auto_params, visible_profiles
+from ..presets import ARCH, DEFAULT_PROFILE, PROFILES, auto_params, visible_profiles
 from ..train_runner import TrainRunner, read_telemetry
 from . import theme
 from .chart import MetricsChart
@@ -72,6 +72,35 @@ class DownloadWorker(QThread):
             self.done.emit("", repr(e))
 
 
+class ExportWorker(QThread):
+    line = Signal(str)
+    done = Signal(str, bool)  # (out_dir, ok)
+
+    def __init__(self, repo, checkpoint, out_dir, model, scale, *, fp32, fp16, ncnn):
+        super().__init__()
+        self.repo, self.checkpoint, self.out_dir = repo, checkpoint, out_dir
+        self.model, self.scale = model, scale
+        self.fp32, self.fp16, self.ncnn = fp32, fp16, ncnn
+
+    def run(self) -> None:
+        from ..exporter import export_checkpoint
+
+        try:
+            res = export_checkpoint(
+                self.repo, self.checkpoint, self.out_dir, self.model, self.scale,
+                fp32=self.fp32, fp16=self.fp16, ncnn=self.ncnn,
+            )
+            for err in res.errors:
+                self.line.emit(f"export: {err}")
+            made = [p.name for p in (res.safetensors, res.onnx_fp32, res.onnx_fp16) if p]
+            if made:
+                self.line.emit("exported: " + ", ".join(made))
+            self.done.emit(str(self.out_dir), res.safetensors is not None)
+        except Exception as e:  # noqa: BLE001
+            self.line.emit(f"export failed: {e!r}")
+            self.done.emit("", False)
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -114,37 +143,58 @@ class MainWindow(QMainWindow):
         # --- settings column ---
         settings = QGroupBox("Setup")
         form = QFormLayout(settings)
-        self.model = QComboBox(); self.model.addItems(["NERVE", "HEART"])
-        self.model.currentTextChanged.connect(self._refresh_autoparams)
-        self.scale = QComboBox(); self.scale.addItems([str(s) for s in SCALES]); self.scale.setCurrentText("2")
-        self.scale.currentTextChanged.connect(self._refresh_autoparams)
-        self.profile = QComboBox(); self.profile.addItems(visible_profiles()); self.profile.setCurrentText("FIDELITY")
-        self.profile.currentTextChanged.connect(self._refresh_autoparams)
+        self.form = form
 
-        self.data_mode = QComboBox(); self.data_mode.addItems(["OTF", "PAIRED"])
-        self.data_mode.currentTextChanged.connect(self._on_data_mode)
-        self.hr = self._path_row("Select HR image folder…")
+        # Model — NERVE is the recommended default (much faster to train).
+        self.model = QComboBox()
+        self.model.addItem("NERVE  ·  recommended (faster)", "NERVE")
+        self.model.addItem("HEART (higher quality, slower)", "HEART")
+        # Scale — 2× is recommended and ships with pretrained weights.
+        self.scale = QComboBox()
+        self.scale.addItem("2×  ·  recommended", 2)
+        self.scale.addItem("4×", 4)
+        # Profile — Fidelity is the recommended default.
+        self.profile = QComboBox()
+        for key in visible_profiles():
+            tag = "  ·  recommended" if key == DEFAULT_PROFILE else ""
+            self.profile.addItem(f"{PROFILES[key].label}{tag}", key)
+        # Image source — beginners never need to meet the word "OTF".
+        self.data_mode = QComboBox()
+        self.data_mode.addItem("Automatic — I only have HR images  ·  recommended", "OTF")
+        self.data_mode.addItem("I already have matching LR + HR folders", "PAIRED")
+        for combo in (self.model, self.scale, self.profile):
+            combo.currentIndexChanged.connect(self._on_choice_changed)
+        self.data_mode.currentIndexChanged.connect(self._on_data_mode)
+
+        self.hr = self._path_row("Select your HR image folder…")
         self.lr = self._path_row("(optional) matching LR folder…")
         self.lucid_btn = QPushButton("Download Lucid dataset (CC0, large)…")
         self.lucid_btn.clicked.connect(self._download_lucid)
-        self.degrad = QComboBox(); self.degrad.addItems(list(PRESETS.keys()))
-        self.degrad.setCurrentText(DEFAULT_FIDELITY_PRESET)
+        self.degrad = QComboBox()
+        for key, preset in PRESETS.items():
+            self.degrad.addItem(preset.label, key)
+        self.degrad.setCurrentIndex(self.degrad.findData(DEFAULT_FIDELITY_PRESET))
         self.val_hr = self._path_row("(optional) validation HR…")
         self.val_lr = self._path_row("(optional) validation LR…")
         self.out = self._path_row("final-model output folder…", dir_default=True)
+        self.out._edit.setText(str(self.paths.data / "outputs"))  # type: ignore[attr-defined]
+        self.perceptual = QCheckBox("Also track DISTS + LPIPS (slower validation)")
 
         form.addRow("Model", self.model)
         form.addRow("Scale", self.scale)
         form.addRow("Profile", self.profile)
-        form.addRow("LR source", self.data_mode)
-        form.addRow("HR folder", self.hr)
+        hint = QLabel("Fields outlined in green are the recommended choices for most users.")
+        hint.setObjectName("muted"); hint.setWordWrap(True)
+        form.addRow(hint)
+        form.addRow("Image source", self.data_mode)
+        form.addRow("HR folder (your images)", self.hr)
         form.addRow("", self.lucid_btn)
         form.addRow("LR folder", self.lr)
         form.addRow("Degradation", self.degrad)
-        form.addRow("Val HR", self.val_hr)
-        form.addRow("Val LR", self.val_lr)
+        form.addRow("Validation HR", self.val_hr)
+        form.addRow("Validation LR", self.val_lr)
         form.addRow("Output folder", self.out)
-        self._on_data_mode()
+        form.addRow("", self.perceptual)
 
         self.expert = QCheckBox("Expert mode")
         self.expert.toggled.connect(self._toggle_expert)
@@ -163,12 +213,15 @@ class MainWindow(QMainWindow):
         advf.addRow("", self.compile_cb); advf.addRow("", self.ckpt_cb)
         self._adv.setVisible(False)
         form.addRow(self._adv)
+        self._on_data_mode()
+        self._refresh_recommended()
+        self._update_field_visibility()
 
         exp_opts = QGroupBox("Export")
         ef = QFormLayout(exp_opts)
         self.e_onnx32 = QCheckBox("ONNX fp32"); self.e_onnx32.setChecked(True)
         self.e_onnx16 = QCheckBox("ONNX fp16"); self.e_onnx16.setChecked(True)
-        self.e_ncnn = QCheckBox("ncnn (NERVE only)"); self.e_ncnn.setChecked(True)
+        self.e_ncnn = QCheckBox("ncnn (NERVE; needs converter)")
         ef.addRow(self.e_onnx32); ef.addRow(self.e_onnx16); ef.addRow(self.e_ncnn)
         form.addRow(exp_opts)
 
@@ -267,19 +320,53 @@ class MainWindow(QMainWindow):
             edit.setText(p)
 
     # ---------- behaviour ----------
-    def _on_data_mode(self) -> None:
-        otf = self.data_mode.currentText() == "OTF"
+    def _on_choice_changed(self, *_: object) -> None:
+        self._refresh_autoparams()
+        self._refresh_recommended()
+
+    def _on_data_mode(self, *_: object) -> None:
+        otf = self.data_mode.currentData() == "OTF"
         self.degrad.setEnabled(otf)
         self.lr.setEnabled(not otf)
-        if otf and self.degrad.currentText() == DEFAULT_FIDELITY_PRESET:
-            self.degrad.setCurrentText(DEFAULT_OTF_PRESET)
+        if otf and self.degrad.currentData() == DEFAULT_FIDELITY_PRESET:
+            self.degrad.setCurrentIndex(self.degrad.findData(DEFAULT_OTF_PRESET))
+        self._update_field_visibility()
 
     def _toggle_expert(self, on: bool) -> None:
         self._adv.setVisible(on)
+        self._update_field_visibility()
+
+    def _set_row_visible(self, widget: QWidget, visible: bool) -> None:
+        if hasattr(self.form, "setRowVisible"):
+            self.form.setRowVisible(widget, visible)
+        else:  # pragma: no cover - very old PySide6
+            widget.setVisible(visible)
+            label = self.form.labelForField(widget)
+            if label is not None:
+                label.setVisible(visible)
+
+    def _update_field_visibility(self) -> None:
+        """Hide the fiddly rows unless the user is an expert (or they're required)."""
+        expert = self.expert.isChecked()
+        paired = self.data_mode.currentData() == "PAIRED"
+        self._set_row_visible(self.degrad, expert)
+        self._set_row_visible(self.val_hr, expert)
+        self._set_row_visible(self.val_lr, expert)
+        self._set_row_visible(self.lr, paired)
+
+    def _mark(self, widget: QWidget, recommended: bool) -> None:
+        widget.setProperty("recommended", recommended)
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
+
+    def _refresh_recommended(self) -> None:
+        self._mark(self.model, self.model.currentData() == "NERVE")
+        self._mark(self.scale, self.scale.currentData() == 2)
+        self._mark(self.profile, self.profile.currentData() == DEFAULT_PROFILE)
 
     def _refresh_autoparams(self) -> None:
-        ap = auto_params(self.model.currentText(), int(self.scale.currentText()),
-                         self.profile.currentText(), self.hw.best_vram_gb)
+        ap = auto_params(self.model.currentData(), int(self.scale.currentData()),
+                         self.profile.currentData(), self.hw.best_vram_gb)
         if not self.expert.isChecked():
             self.batch.setValue(ap.batch)
             self.patch.setValue(ap.lq_size)
@@ -287,17 +374,18 @@ class MainWindow(QMainWindow):
         self.status.setText(ap.note)
 
     def _request(self) -> TrainRequest:
-        otf = self.data_mode.currentText() == "OTF"
+        otf = self.data_mode.currentData() == "OTF"
         return TrainRequest(
-            model=self.model.currentText(), scale=int(self.scale.currentText()),
-            profile=self.profile.currentText(), data_mode="OTF" if otf else "PAIRED",
+            model=self.model.currentData(), scale=int(self.scale.currentData()),
+            profile=self.profile.currentData(), data_mode="OTF" if otf else "PAIRED",
             hr_dir=self.hr._edit.text(), lr_dir=self.lr._edit.text(),
-            degradation=self.degrad.currentText() if otf else "",
+            degradation=self.degrad.currentData() if otf else "",
             val_hr_dir=self.val_hr._edit.text(), val_lr_dir=self.val_lr._edit.text(),
             batch=self.batch.value(), lq_size=self.patch.value(), iters=self.iters.value(),
             lr=self.lr_edit.value() if self.expert.isChecked() else None,
             use_compile=self.compile_cb.isChecked(), use_checkpoint=self.ckpt_cb.isChecked(),
-            name=f"{self.model.currentText()}_{self.scale.currentText()}x_run",
+            val_perceptual_metrics=self.perceptual.isChecked(),
+            name=f"{self.model.currentData()}_{self.scale.currentData()}x_run",
         )
 
     def _review(self) -> None:
@@ -327,6 +415,7 @@ class MainWindow(QMainWindow):
             return self._help("config generation", str(e))
         self.prog.setRange(0, req.iters)
         self.chart.clear()
+        self._last_req = req
         self.train_btn.setEnabled(False)
         self.worker = TrainWorker(self.runner, cfg, req.name, req.iters)
         self.worker.line.connect(self.log.appendPlainText)
@@ -367,9 +456,38 @@ class MainWindow(QMainWindow):
     def _on_done(self, ok: bool, info: str) -> None:
         self.timer.stop()
         self.train_btn.setEnabled(True)
-        self.status.setText("done" if ok else "failed")
         if not ok:
-            self._help("training", info)
+            self.status.setText("failed")
+            return self._help("training", info)
+        self.status.setText("training done — exporting model…")
+        self._export_model()
+
+    def _export_model(self) -> None:
+        req = getattr(self, "_last_req", None)
+        if req is None:
+            return
+        run_models = self.paths.repo / "experiments" / req.name / "models"
+        ckpts = sorted(run_models.glob("net_g_ema_*.safetensors")) or sorted(
+            run_models.glob("net_g_*.safetensors"))
+        if not ckpts:
+            self.status.setText("done — no checkpoint found to export")
+            return
+        out_dir = Path(self.out._edit.text()) if self.out._edit.text() else self.paths.data / "outputs"  # type: ignore[attr-defined]
+        self.log.appendPlainText(f"exporting → {out_dir}")
+        self.export_worker = ExportWorker(
+            self.paths.repo, ckpts[-1], out_dir, req.model, req.scale,
+            fp32=self.e_onnx32.isChecked(), fp16=self.e_onnx16.isChecked(),
+            ncnn=self.e_ncnn.isChecked(),
+        )
+        self.export_worker.line.connect(self.log.appendPlainText)
+        self.export_worker.done.connect(self._on_export_done)
+        self.export_worker.start()
+
+    def _on_export_done(self, out_dir: str, ok: bool) -> None:
+        if ok:
+            self.status.setText(f"model saved → {out_dir}")
+        else:
+            self.status.setText("trained; export had problems (see log)")
 
     def _tick(self) -> None:
         t = read_telemetry()

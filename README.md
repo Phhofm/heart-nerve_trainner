@@ -24,7 +24,11 @@ terminal, no code. Pick a model + scale, point at a folder of HR images, hit
 No GPU? The app warns that CPU training is very slow (possible for NERVE).
 
 ## Features
+- **Guided defaults** — NERVE + 2× + Fidelity are pre-selected and outlined in green;
+  everything fiddly (degradation, val sets, batch/patch/LR) stays hidden until **Expert mode**.
 - **Live validation graphs** — PSNR / SSIM (fidelity) and DISTS / LPIPS (perceptual).
+- **Exports by itself** — when training finishes it writes `.safetensors`, `.onnx`
+  (fp32 + fp16) and, for NERVE, `.ncnn` into your output folder.
 - **One-click Lucid download** — 100k CC0 training tiles, no account needed.
 - **Auto-everything** — hardware detection, safe auto-params, self-test, repair, export.
 - **In-app updates** — checks `latest.json`, then asks before downloading a new build.

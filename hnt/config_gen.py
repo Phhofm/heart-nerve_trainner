@@ -74,6 +74,7 @@ class TrainRequest:
     strict_load: bool = True
     use_compile: bool = True
     use_checkpoint: bool = False
+    val_perceptual_metrics: bool = False  # DISTS/LPIPS — accurate but much slower
     name: str = "hnt_run"
     extra: dict[str, Any] = field(default_factory=dict)
 
@@ -103,7 +104,9 @@ def _synth_paired(req: TrainRequest) -> dict[str, Any]:
                     "dataroot_gt": [req.val_hr_dir], "dataroot_lq": [req.val_lr_dir],
                     "filename_tmpl": f"{{}}x{req.scale}"},
         },
-        "network_g": {"type": arch["type"], "use_checkpoint": req.use_checkpoint},
+        "network_g": {"type": arch["type"], "use_checkpoint": req.use_checkpoint}
+        if req.model == "HEART"
+        else {"type": arch["type"]},
         "path": {"pretrain_network_g": req.pretrain, "param_key_g": None,
                  "strict_load_g": req.strict_load, "resume_state": None},
         "train": {
@@ -161,7 +164,9 @@ def _patch(cfg: dict[str, Any], req: TrainRequest) -> dict[str, Any]:
     if req.val_lr_dir:
         val["dataroot_lq"] = [req.val_lr_dir]
 
-    cfg.setdefault("network_g", {})["use_checkpoint"] = req.use_checkpoint
+    ng = cfg.setdefault("network_g", {})
+    if "use_checkpoint" in ng:  # HEART supports it; NERVE's arch does not
+        ng["use_checkpoint"] = req.use_checkpoint
 
     path = cfg.setdefault("path", {})
     path["pretrain_network_g"] = req.pretrain
@@ -175,10 +180,12 @@ def _patch(cfg: dict[str, Any], req: TrainRequest) -> dict[str, Any]:
         tr.setdefault("optim_g", {})["lr"] = req.lr
 
     cfg.setdefault("val", {})["val_freq"] = max(2500, req.iters // 40)
-    # Add perceptual metrics so the GUI can plot real-time PSNR/SSIM/DISTS/LPIPS graphs.
+    # PSNR/SSIM are always on. DISTS/LPIPS are opt-in: the trainer rebuilds the
+    # perceptual net for every validation image, so they are much slower.
     vmetrics = cfg["val"].setdefault("metrics", {})
-    vmetrics.setdefault("dists", {"type": "calculate_dists"})
-    vmetrics.setdefault("lpips", {"type": "calculate_lpips"})
+    if req.val_perceptual_metrics:
+        vmetrics.setdefault("dists", {"type": "calculate_dists"})
+        vmetrics.setdefault("lpips", {"type": "calculate_lpips"})
     cfg.setdefault("logger", {})["save_checkpoint_format"] = "safetensors"
     return cfg
 

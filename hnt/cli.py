@@ -36,7 +36,7 @@ def _cmd_config(a: argparse.Namespace) -> int:
         model=a.model, scale=a.scale, profile=a.profile, data_mode=a.data_mode,
         hr_dir=a.hr, lr_dir=a.lr or "", val_hr_dir=a.val_hr or "", val_lr_dir=a.val_lr or "",
         degradation=a.degradation, batch=a.batch or ap.batch, lq_size=a.lq or ap.lq_size,
-        iters=a.iters, name=a.name,
+        iters=a.iters, name=a.name, val_perceptual_metrics=a.perceptual_metrics,
     )
     cfg = build_config(req, repo)
     out = write_config(cfg, Path(a.out))
@@ -90,6 +90,8 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--lq", type=int, default=0)
     c.add_argument("--vram", type=float, default=8.0)
     c.add_argument("--iters", type=int, default=100_000)
+    c.add_argument("--perceptual-metrics", action="store_true",
+                   help="also validate with DISTS/LPIPS (slower)")
     c.add_argument("--name", default="hnt_run")
     c.add_argument("--out", required=True)
     c.set_defaults(fn=_cmd_config)

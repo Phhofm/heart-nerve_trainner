@@ -23,15 +23,29 @@ class DegradationPreset:
 
 
 _CLEAN = {
-    "high_order_degradation": False,
+    # high_order_degradation=True selects the OTF model (RealESRGANModel); with every
+    # stage probability zeroed the only operation left is a plain downscale → clean DC.
+    # Only keys that exist at the config ROOT (see options/train/RELEASE/*OTF*.yml).
+    "high_order_degradation": True,
     "lq_usm": False,
+    # stage 1: pure bicubic downscale
     "blur_prob": 0.0,
     "resize_prob": [0.0, 1.0, 0.0],
     "resize_mode_list": ["bicubic"],
     "resize_mode_prob": [1.0],
     "resize_range": [1.0, 1.0],
     "gaussian_noise_prob": 0.0,
+    "gray_noise_prob": 0.0,
     "jpeg_prob": 0.0,
+    # stage 2: off
+    "blur_prob2": 0.0,
+    "resize_prob2": [0.0, 1.0, 0.0],
+    "resize_mode_list2": ["bicubic"],
+    "resize_mode_prob2": [1.0],
+    "resize_range2": [1.0, 1.0],
+    "gaussian_noise_prob2": 0.0,
+    "gray_noise_prob2": 0.0,
+    "jpeg_prob2": 0.0,
 }
 
 _REALESRGAN = {
