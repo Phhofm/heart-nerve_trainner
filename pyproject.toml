@@ -1,0 +1,30 @@
+[project]
+name = "heart-nerve-trainer"
+version = "0.1.0"
+description = "A beginner-first GUI for training HEART / NERVE super-resolution models"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+  "PySide6>=6.6",
+  "pyqtgraph>=0.13",
+  "PyYAML>=6",
+  "psutil>=5.9",
+  "safetensors>=0.4",
+  "huggingface_hub>=0.20",
+]
+
+[project.optional-dependencies]
+# Training/export deps (installed into the isolated venv by the bootstrap, too).
+train = ["torch", "torchvision", "onnx>=1.16", "onnxsim>=0.4", "onnxruntime>=1.17"]
+dev = ["pytest>=7"]
+
+[project.scripts]
+hnt = "hnt.cli:main"
+heart-nerve-trainer = "hnt.ui:run"
+
+[tool.setuptools.packages.find]
+include = ["hnt*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

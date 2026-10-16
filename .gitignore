@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+
+# Vendored at build time (large binaries) — see packaging/build.md
+packaging/vendor/
+packaging/icon.png

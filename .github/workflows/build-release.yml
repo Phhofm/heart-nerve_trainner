@@ -1,0 +1,56 @@
+# Build the app installers on every tag and attach them to a GitHub Release.
+# (This file is a template for the standalone `heart-nerve-trainer` repo.)
+name: build-release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install deps
+        run: pip install pyinstaller -e .
+      - name: Freeze app (onedir)
+        run: pyinstaller --noconfirm --windowed --name HeartNerveTrainer app.py
+      # Bundle the trainer repo + a `uv` binary next to the app (see packaging/build.md).
+      - name: Build installer (Inno Setup)
+        run: iscc packaging/windows/installer.iss
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-windows
+          path: dist/*.exe
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install deps
+        run: pip install pyinstaller -e .
+      - name: Freeze app
+        run: pyinstaller --noconfirm --name HeartNerveTrainer app.py
+      - name: Build AppImage
+        run: bash packaging/linux/build_appimage.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appimage
+          path: dist/*.AppImage
+
+  release:
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts }
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true

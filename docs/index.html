@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HEART / NERVE Trainer — train your own super-resolution model</title>
+<meta name="description" content="A beginner-first desktop app that trains HEART / NERVE super-resolution models with no code. Pick a model, point at images, hit Train, get a deployable model.">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="nav">
+  <span class="brand">HEART&nbsp;/&nbsp;NERVE <span class="brand-dim">Trainer</span></span>
+  <nav>
+    <a href="#how">How it works</a>
+    <a href="#faq">FAQ</a>
+    <a href="https://github.com/Phhofm/heart-nerve_trainner/releases">Releases</a>
+  </nav>
+</header>
+
+<main>
+  <section class="hero reveal">
+    <p class="eyebrow">Super-resolution, without the terminal</p>
+    <h1>Train your own<br><span class="grad">image upscaler</span>, no code.</h1>
+    <p class="lede">
+      A friendly desktop app for training <strong>HEART</strong> and <strong>NERVE</strong>
+      models. Pick a model and scale, point it at a folder of photos, press
+      <strong>Train</strong> — then use the result anywhere.
+    </p>
+
+    <div class="cta" id="download">
+      <a class="btn primary" data-os="windows"
+         href="https://github.com/Phhofm/heart-nerve_trainner/releases/latest/download/HeartNerveTrainer-Setup.exe">
+        <span class="btn-text"><b>Download for Windows</b><small>Installer (.exe)</small></span>
+      </a>
+      <a class="btn primary" data-os="linux"
+         href="https://github.com/Phhofm/heart-nerve_trainner/releases/latest/download/HeartNerveTrainer.AppImage">
+        <span class="btn-text"><b>Download for Linux</b><small>AppImage · no install</small></span>
+      </a>
+    </div>
+    <p class="note" id="os-note">
+      Detected your OS — the matching button is highlighted. Builds are published on
+      <a href="https://github.com/Phhofm/heart-nerve_trainner/releases">Releases</a>.
+    </p>
+
+    <ul class="badges">
+      <li>Windows + Linux</li>
+      <li>MIT licensed</li>
+      <li>Free CC0 training data</li>
+      <li>GPU optional</li>
+    </ul>
+  </section>
+
+  <section id="how" class="steps reveal">
+    <h2>Three steps to a model</h2>
+    <ol class="cards">
+      <li class="card">
+        <span class="num">1</span>
+        <h3>Install</h3>
+        <p>Double-click the installer. The app sets everything up in its own folder — your
+           system is never touched.</p>
+      </li>
+      <li class="card">
+        <span class="num">2</span>
+        <h3>Pick &amp; point</h3>
+        <p>Choose <b>NERVE</b> (fast) or <b>HEART</b> (higher quality), a scale, and a folder
+           of high-res images. Safe defaults are pre-filled.</p>
+      </li>
+      <li class="card">
+        <span class="num">3</span>
+        <h3>Train &amp; export</h3>
+        <p>Hit <b>Train</b> and watch live PSNR / SSIM / DISTS / LPIPS graphs. Get a
+           deployable model when it's done.</p>
+      </li>
+    </ol>
+  </section>
+
+  <section class="output reveal">
+    <h2>What you get</h2>
+    <p class="muted">Drop the exported files straight into chaiNNer, ComfyUI, or your own code.</p>
+    <div class="chips">
+      <span class="chip"><code>.safetensors</code><small>PyTorch weights</small></span>
+      <span class="chip"><code>.onnx</code><small>fp32 &amp; fp16</small></span>
+      <span class="chip"><code>.ncnn</code><small>NERVE, edge</small></span>
+    </div>
+    <div class="profiles">
+      <span><b>Fidelity</b> — clean &amp; stable (default)</span>
+      <span><b>Perceptual</b> — sharper textures (GAN)</span>
+      <span><b>Real-world</b> — robust to blur, noise &amp; JPEG</span>
+    </div>
+  </section>
+
+  <section id="faq" class="faq reveal">
+    <h2>Questions</h2>
+    <details>
+      <summary>Do I need a GPU?</summary>
+      <p>It trains on CPU, but that's <em>very</em> slow. An NVIDIA GPU (even 6–12&nbsp;GB) makes
+         it practical. The app detects your hardware and picks safe settings.</p>
+    </details>
+    <details>
+      <summary>NERVE or HEART — which should I pick?</summary>
+      <p><b>NERVE</b> is the recommended default: faster to train and to run, great for
+         everyday use. <b>HEART</b> is the higher-quality tier for when you have time and VRAM.</p>
+    </details>
+    <details>
+      <summary>Where does the training data come from?</summary>
+      <p>Ships with a one-click download of the <b>Lucid</b> dataset — 100k CC0 image tiles,
+         free for any use. Or point it at your own photos, no upload needed.</p>
+    </details>
+    <details>
+      <summary>Is it free?</summary>
+      <p>Yes. The app is MIT-licensed and built on the open-source
+         <a href="https://github.com/the-database/traiNNer-redux">traiNNer-redux</a> harness.</p>
+    </details>
+    <details>
+      <summary>What if something goes wrong?</summary>
+      <p>The app copies a friendly, non-technical diagnostic report to your clipboard — paste it
+         into any AI assistant or a forum and you'll get step-by-step help. Nothing is sent
+         anywhere automatically.</p>
+    </details>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="foot-links">
+    <a href="https://github.com/Phhofm">GitHub</a>
+    <a href="https://huggingface.co/Phips">Hugging Face</a>
+    <a href="https://huggingface.co/spaces/Phips/heart">HEART demo</a>
+    <a href="https://huggingface.co/spaces/Phips/nerve">NERVE demo</a>
+    <a href="https://huggingface.co/spaces/Phips/nerve-convert">NERVE / HEART converter</a>
+    <a href="https://github.com/Phhofm/heart-nerve_trainner/blob/main/LICENSE">License (MIT)</a>
+  </div>
+  <p class="made">Made by <strong>Philip Hofmann</strong>. Built on the open-source traiNNer-redux training harness.</p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
