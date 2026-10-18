@@ -1,0 +1,145 @@
+[project]
+name = "traiNNer-redux"
+requires-python = ">=3.11"
+dynamic = ["version"]
+dependencies = [
+"antialiased_cnns",
+"einops",
+"ema-pytorch",
+"msgspec",
+"numpy>=2",
+"opencv-python",
+"Pillow",
+"pytorch-optimizer>=3.4.2",
+"pyvips>=2.2.3",
+"pyvips-binary>=8.16.0",
+"pyyaml",
+"requests",
+"rich",
+"safetensors",
+"scipy",
+"spandrel>=0.4.0",
+"spandrel-extra-arches>=0.2.0",
+"tb-nightly",
+"timm",
+"torch>=2.11.0",
+"torchvision",
+"tqdm",
+]
+authors = [{name = "the-database"}]
+description = "Deep learning training framework for image super resolution and restoration."
+readme = "README.md"
+license = {file = "LICENSE.txt"}
+keywords = ["machine learning", "deep learning", "neural network", "pytorch", "super resolution", "upscale", "image restoration" ]
+
+[project.optional-dependencies]
+dev = ["ruff", "pyright", "pytest", "syrupy", "torchfix"]
+onnx = [
+    "lief",
+    "ml_dtypes",
+    "onnx-graphsurgeon>=0.6.1",
+    "onnx>=1.21.0",
+    "onnxconverter-common~=1.16.0",
+    "onnxruntime-gpu>=1.24.4",
+    "onnxscript>=0.6.2",
+    "onnxslim",
+    "polygraphy",
+    "nvidia-modelopt>=0.42.0",
+]
+docs = ["sphinx", "sphinx-rtd-theme"]
+scripts = ["chainner_ext", "matplotlib", "pandas"]
+segmentation = ["segmentation_models_pytorch"]
+
+[project.urls]
+Repository = "https://github.com/the-database/traiNNer-redux.git"
+
+[tool.setuptools.packages.find]
+where = ["."]  # list of folders that contain the packages (["."] by default)
+include = ["traiNNer"]  # package names should match these glob patterns (["*"] by default)
+exclude = []  # exclude packages matching these glob patterns (empty by default)
+namespaces = false  # to disable scanning PEP 420 namespaces (true by default)
+
+[tool.ruff]
+# Same as Black.
+line-length = 88
+indent-width = 4
+
+src = ["traiNNer"]
+
+unsafe-fixes = true
+
+[tool.ruff.lint]
+# Add the `line-too-long` rule to the enforced rule set.
+extend-select = [
+    "UP", # pyupgrade
+    "E",  # pycodestyle
+    "W",  # pycodestyle
+    "F",  # pyflakes
+    "I",  # isort
+    "N",  # pep8-naming
+    # "ANN", # flake8-annotations
+    "ANN001",
+    "ANN002",
+    "ANN201",
+    "ANN202",
+    "ANN204",
+    "ANN205",
+    "ANN206",
+    # "ASYNC", # flake8-async
+    "PL",  # pylint
+    "RUF", # ruff
+    "B",   # flake8-bugbear
+    # "A",   # flake8-builtins
+    # "COM", # flake8-commas
+    "C4",  # flake8-comprehensions
+    "FA",  # flake8-future-annotations
+    "ISC", # flake8-implicit-str-concat
+    "ICN", # flake8-import-conventions
+    "G",   # flake8-logging-format
+    # "INP", # flake8-implicit-namespaces
+    "PIE", # flake8-pie
+    # "PYI", # flake8-pyi
+    "Q", # flake8-quotes
+    # "RET", # flake8-return
+    "SLF", # flake8-self
+    # "SIM", # flake8-simplify
+    # "TCH", # flake8-tidy-imports
+    "NPY", # NumPy-specific rules
+    "NPY201", # numpy2-deprecation
+]
+ignore = [
+    "E501",    # Line too long
+    "PLR2004", # Magic value
+    "PLR0911", # Too many return statements
+    "PLR0912", # Too many branches
+    "PLR0913", # Too many arguments
+    "PLR0915", # Too many statements,
+    "E741",    # Ambiguous variable name,
+    "E712",    # true-false-comparison, has false positives because of numpy's operator overloading
+    "F821",    # Undefined name -- this one is weird, it seems like it has false positives on closures and other context changes
+    "F403",    # 'from module import *' used; unable to detect undefined names
+    "PLW0603", # Using the global statement
+    "N999",    # Invalid module name (which triggers for chaiNNer)
+    "N818",    # Exception name should end in Error
+    "ISC001",  # Implicit string concatenation, conflicts with formatter
+    "PLC0415"
+]
+unfixable = [
+    "F841",
+    "F401"
+]
+[tool.ruff.format]
+# Like Black, use double quotes for strings.
+quote-style = "double"
+
+# Like Black, indent with spaces, rather than tabs.
+indent-style = "space"
+
+# Like Black, respect magic trailing commas.
+skip-magic-trailing-comma = false
+
+# Like Black, automatically detect the appropriate line ending.
+line-ending = "auto"
+
+[tool.uv.pip]
+extra-index-url = ["https://download.pytorch.org/whl/cu121"]

@@ -12,3 +12,8 @@ venv/
 packaging/vendor/uv
 packaging/vendor/uv.exe
 packaging/icon.png
+
+# Runtime artifacts if the self-test is run against the vendored trainer
+packaging/vendor/trainer/tb_logger/
+packaging/vendor/trainer/experiments/
+packaging/vendor/trainer/options/train/ABLATION/

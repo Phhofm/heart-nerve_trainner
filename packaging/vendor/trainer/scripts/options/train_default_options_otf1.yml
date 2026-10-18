@@ -1,0 +1,40 @@
+high_order_degradation: true  # Enable on-the-fly (OTF) degradations, which generates LR tiles from HRs during training.
+high_order_degradations_debug: false  # Save the LR and HR tiles to debug/otf folder inside the root of the training directory.
+high_order_degradations_debug_limit: 100  # The max number of iterations to save LR and HR tiles for.
+
+# USM degradation options.
+lq_usm: false  # Apply unsharp mask to LQ image before all other degradations.
+lq_usm_radius_range: [1, 25]  # Range of randomly selected unsharp mask radius to apply.
+
+# The first degradation process.
+thicklines_prob: 0.0
+blur_prob: 0.0
+resize_prob: [0.2, 0.7, 0.1]  # up, down, keep
+resize_mode_list: ['bilinear', 'bicubic', 'nearest-exact', 'lanczos']  # bilinear, bicubic, nearest-exact, lanczos
+resize_mode_prob: [0.25, 0.25, 0.25, 0.25]  # Probability each resize mode is selected.
+resize_range: [0.4, 1.5]
+gaussian_noise_prob: 0.0
+noise_range: [0, 0]
+poisson_scale_range: [0, 0]
+gray_noise_prob: 0.0
+jpeg_prob: 1.0
+jpeg_range: [75, 95]
+
+# The second degradation process.
+blur_prob2: 0.0
+resize_prob2: [0.3, 0.4, 0.3]  # up, down, keep
+resize_mode_list2: ['bilinear', 'bicubic', 'nearest-exact', 'lanczos']  # bilinear, bicubic, nearest-exact, lanczos
+resize_mode_prob2: [0.25, 0.25, 0.25, 0.25]  # Probability each resize mode is selected.
+resize_range2: [0.6, 1.2]
+gaussian_noise_prob2: 0
+noise_range2: [0, 0]
+poisson_scale_range2: [0, 0]
+gray_noise_prob2: 0.0
+jpeg_prob2: 1.0
+jpeg_range2: [75, 95]
+
+# The final resize to the target resolution.
+resize_mode_list3: ['bilinear', 'bicubic', 'nearest-exact', 'lanczos']  # bilinear, bicubic, nearest-exact, lanczos
+resize_mode_prob3: [0.25, 0.25, 0.25, 0.25]  # Probability each resize mode is selected.
+
+queue_size: 120

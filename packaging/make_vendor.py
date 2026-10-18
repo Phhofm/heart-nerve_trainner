@@ -23,11 +23,14 @@ TRAINER = VENDOR / "trainer"
 
 INCLUDE = [
     "train.py",
+    "pyproject.toml",
+    "requirements.txt",
     "traiNNer",
     "options/train/RELEASE",
     "schemas",
     "scripts/heart/export_minimal.py",
     "scripts/nerve/export_dynamic.py",
+    "scripts/options",
     "LICENSE.txt",
 ]
 SKIP_DIRS = {"__pycache__", ".pytest_cache", ".git"}
@@ -85,7 +88,8 @@ def build(trainer: Path) -> None:
             print(f"  skip (missing): {rel}")
 
     # Small out-of-the-box validation + self-test data.
-    _copy_subset(trainer / "datasets/train/dataset1", TRAINER / "datasets/train/dataset1", 6)
+    # The demo set has hr/lr subfolders, so copy it whole (4 MB).
+    _copy_tree(trainer / "datasets/train/dataset1", TRAINER / "datasets/train/dataset1")
     _copy_subset(trainer / "datasets/val/urban100/hr", TRAINER / "datasets/val/urban100/hr", SPLIT_COUNT)
     _copy_subset(
         trainer / "datasets/val/urban100_otf_x2",
