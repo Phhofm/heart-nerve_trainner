@@ -79,9 +79,16 @@ def run_selftest(paths: Paths, python_exe: str | None = None, on_log=lambda m: N
 
     on_log("Exporting self-test checkpoint …")
     res = export_checkpoint(paths.repo, ckpts[-1], paths.data / "selftest_out", "NERVE", 2,
-                            fp32=True, fp16=False, ncnn=False)
+                            fp32=True, fp16=True, ncnn=True)
+    detail = "; ".join(res.errors)
+    if res.safetensors is None:
+        return SelfTestResult(False, "export-safetensors", tail, detail or "no safetensors")
     if res.onnx_fp32 is None:
-        return SelfTestResult(False, "export-onnx", tail, "; ".join(res.errors))
+        return SelfTestResult(False, "export-onnx", tail, detail)
+    if res.onnx_fp16 is None:
+        return SelfTestResult(False, "export-onnx-fp16", tail, detail)
+    if res.ncnn_dir is None:
+        return SelfTestResult(False, "export-ncnn", tail, detail)
 
     # Clean up the temp run + config so the user's machine is left tidy.
     shutil.rmtree(run_dir, ignore_errors=True)
