@@ -110,6 +110,7 @@ class MainWindow(QMainWindow):
         self.resize(1120, 760)
         self.runner = TrainRunner(self.paths.repo, self.paths.logs)
         self.worker: TrainWorker | None = None
+        self._stopped = False
         self._build_ui()
         self._refresh_autoparams()
         QTimer.singleShot(1500, self._startup_update_check)  # non-blocking update notice
@@ -221,7 +222,7 @@ class MainWindow(QMainWindow):
         ef = QFormLayout(exp_opts)
         self.e_onnx32 = QCheckBox("ONNX fp32"); self.e_onnx32.setChecked(True)
         self.e_onnx16 = QCheckBox("ONNX fp16"); self.e_onnx16.setChecked(True)
-        self.e_ncnn = QCheckBox("ncnn (NERVE; needs converter)")
+        self.e_ncnn = QCheckBox("ncnn (NERVE)")
         ef.addRow(self.e_onnx32); ef.addRow(self.e_onnx16); ef.addRow(self.e_ncnn)
         form.addRow(exp_opts)
 
@@ -394,10 +395,10 @@ class MainWindow(QMainWindow):
             cfg = build_config(req, self.paths.repo)
         except Exception as e:  # noqa: BLE001
             return self._help("config generation", str(e))
-        keys = ("scale", "use_compile", "use_channels_last")
         tds = cfg["datasets"]["train"]
-        msg = (f"Model: {req.model}  Scale: {req.scale}×\nProfile: {req.profile}  "
-               f"Data: {req.data_mode}\nHR: {req.hr_dir}\nLR: {req.lr_dir or '(generated on-the-fly)'}\n"
+        mode = "Automatic (LR generated)" if req.data_mode == "OTF" else "Paired LR + HR"
+        msg = (f"Model: {req.model}  Scale: {req.scale}×\nProfile: {PROFILES[req.profile].label}  "
+               f"Data: {mode}\nHR: {req.hr_dir}\nLR: {req.lr_dir or '(generated on-the-fly)'}\n"
                f"Degradation: {req.degradation or '-'}\nBatch: {req.batch}  Patch: {req.lq_size}  "
                f"Iters: {req.iters}\nPretrain: {req.pretrain or 'from scratch'}\n"
                f"Config data.type: {tds.get('type')}")
@@ -416,6 +417,7 @@ class MainWindow(QMainWindow):
         self.prog.setRange(0, req.iters)
         self.chart.clear()
         self._last_req = req
+        self._stopped = False
         self.train_btn.setEnabled(False)
         self.worker = TrainWorker(self.runner, cfg, req.name, req.iters)
         self.worker.line.connect(self.log.appendPlainText)
@@ -450,6 +452,7 @@ class MainWindow(QMainWindow):
         self.status.setText(f"Lucid ready → HR folder set to {hr_dir}")
 
     def _stop(self) -> None:
+        self._stopped = True
         self.runner.stop()
         self.status.setText("stopping…")
 
@@ -457,6 +460,9 @@ class MainWindow(QMainWindow):
         self.timer.stop()
         self.train_btn.setEnabled(True)
         if not ok:
+            if self._stopped:
+                self.status.setText("stopped")
+                return
             self.status.setText("failed")
             return self._help("training", info)
         self.status.setText("training done — exporting model…")

@@ -23,7 +23,7 @@ traiNNer/                       (the whole package)
 options/train/RELEASE/          # config templates the app patches
 schemas/redux-config.schema.json
 scripts/heart/export_minimal.py # ONNX export
-scripts/nerve/export_dynamic.py # ONNX + ncnn export
+scripts/nerve/export_dynamic.py # ONNX export
 requirements / pinned env list
 LICENSE, attribution
 ```

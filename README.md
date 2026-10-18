@@ -37,7 +37,7 @@ No GPU? The app warns that CPU training is very slow (possible for NERVE).
 ## For developers
 ```bash
 python -m venv .venv && . .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e ".[dev,train]"    # train extra pulls torch/onnx/pnnx/ncnn
 
 pytest -q                                    # tests (GUI tests need PySide6)
 python app.py                                # launch the GUI

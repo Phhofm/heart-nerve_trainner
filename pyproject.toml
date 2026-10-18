@@ -16,7 +16,8 @@ dependencies = [
 
 [project.optional-dependencies]
 # Training/export deps (installed into the isolated venv by the bootstrap, too).
-train = ["torch", "torchvision", "onnx>=1.16", "onnxsim>=0.4", "onnxruntime>=1.17"]
+train = ["torch", "torchvision", "onnx>=1.16", "onnxsim>=0.4", "onnxruntime>=1.17",
+         "onnxconverter-common>=1.14", "pnnx", "ncnn"]
 dev = ["pytest>=7"]
 
 [project.scripts]

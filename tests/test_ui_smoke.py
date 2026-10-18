@@ -76,3 +76,18 @@ def test_defaults_nerve_2x_fidelity_are_recommended(qapp):
     win.model.setCurrentIndex(1)
     assert win.model.property("recommended") is False
     win.close()
+
+
+def test_inference_window_constructs(qapp):
+    from hnt.paths import find_repo
+    from hnt.ui.inference import InferenceWindow
+
+    try:
+        find_repo()
+    except FileNotFoundError:
+        pytest.skip("traiNNer checkout not found")
+
+    win = InferenceWindow()
+    assert win.device.count() == 3  # Auto / CUDA / CPU
+    assert win.arch.currentText() == "NERVE"
+    win.close()

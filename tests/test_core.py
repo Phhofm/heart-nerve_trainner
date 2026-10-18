@@ -54,6 +54,33 @@ def test_perceptual_metrics_are_opt_in():
     assert on["val"]["metrics"]["lpips"]["type"] == "calculate_lpips"
 
 
+def test_nerve_arch_inferred_from_checkpoint(tmp_path):
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("safetensors.torch")
+    from safetensors.torch import save_file
+
+    from hnt.exporter import _nerve_arch_from_checkpoint
+
+    sd = {
+        "blocks.0.conv1.weight": torch.zeros(48, 48, 3, 3),
+        "blocks.1.conv1.weight": torch.zeros(48, 48, 3, 3),
+    }
+    p = tmp_path / "m.safetensors"
+    save_file(sd, str(p))
+    assert _nerve_arch_from_checkpoint(p) == (48, 2)
+
+
+def test_ncnn_infer_arch_from_state_dict():
+    torch = pytest.importorskip("torch")
+    from hnt._ncnn_export import _infer_arch
+
+    sd = {
+        "blocks.0.conv1.weight": torch.zeros(64, 64, 3, 3),
+        "blocks.5.conv1.weight": torch.zeros(64, 64, 3, 3),
+    }
+    assert _infer_arch(sd) == (64, 6)
+
+
 def test_lq_size_is_multiple_of_window():
     for model in ("HEART", "NERVE"):
         step = ARCH[model]["window"]

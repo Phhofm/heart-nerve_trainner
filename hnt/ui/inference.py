@@ -7,14 +7,42 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
     QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLineEdit,
     QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget,
 )
 
+from ..hardware import detect
 from ..infer import IMG_EXTS, infer_paths
 from ..paths import get_paths
 from ..presets import SCALES
+
+
+class InferWorker(QThread):
+    """Runs inference off the UI thread so the window never freezes."""
+
+    line = Signal(str)
+    done = Signal(int, int)  # (wrote, errors)
+
+    def __init__(self, model, inputs, out, arch, scale, device, tile):
+        super().__init__()
+        self.model, self.inputs, self.out = model, inputs, out
+        self.arch, self.scale, self.device, self.tile = arch, scale, device, tile
+
+    def run(self) -> None:
+        try:
+            res = infer_paths(self.model, self.inputs, self.out, arch=self.arch,
+                              scale=self.scale, device=self.device, tile=self.tile)
+        except Exception as e:  # noqa: BLE001
+            self.line.emit(f"ERROR: {e}")
+            self.done.emit(0, 1)
+            return
+        for p in res.outputs:
+            self.line.emit(f"  wrote {p}")
+        for e in res.errors:
+            self.line.emit(f"  ERR {e}")
+        self.done.emit(len(res.outputs), len(res.errors))
 
 
 class InferenceWindow(QMainWindow):
@@ -32,6 +60,7 @@ class InferenceWindow(QMainWindow):
         self.model = self._file_row("trained or downloaded .safetensors/.pth …")
         self.arch = QComboBox(); self.arch.addItems(["NERVE", "HEART"])
         self.scale = QComboBox(); self.scale.addItems([str(s) for s in SCALES]); self.scale.setCurrentText("2")
+        self.device = QComboBox(); self.device.addItems(["Auto", "CUDA", "CPU"])
         self.tile = QComboBox(); self.tile.addItems(["0 (whole image)", "256", "512"])
 
         self.inputs = QListWidget()
@@ -47,12 +76,14 @@ class InferenceWindow(QMainWindow):
         form.addRow("Model", self.model)
         form.addRow("Architecture", self.arch)
         form.addRow("Scale", self.scale)
+        form.addRow("Device", self.device)
         form.addRow("Big image tiling", self.tile)
         form.addRow("Input", self.inputs)
         form.addRow("", inwrap)
         form.addRow("Output folder", self.out)
         run = QPushButton("Run"); run.setObjectName("primary"); run.clicked.connect(self._run)
         form.addRow(run)
+        self.run_btn = run
         root.addWidget(box)
 
         self.log = QPlainTextEdit(); self.log.setReadOnly(True)
@@ -88,6 +119,14 @@ class InferenceWindow(QMainWindow):
         if d:
             self.inputs.addItem(d)
 
+    def _resolve_device(self) -> str:
+        choice = self.device.currentText()
+        if choice == "CPU":
+            return "cpu"
+        if choice == "CUDA":
+            return "cuda"
+        return "cuda" if detect().best_vram_gb > 0 else "cpu"
+
     def _run(self) -> None:
         model = self.model._edit.text()  # type: ignore[attr-defined]
         out = self.out._edit.text()  # type: ignore[attr-defined]
@@ -96,15 +135,20 @@ class InferenceWindow(QMainWindow):
             QMessageBox.warning(self, "Inference", "Pick a model, an output folder, and at least one input.")
             return
         tile = int(self.tile.currentText().split()[0])
-        self.log.appendPlainText(f"Running {self.arch.currentText()} x{self.scale.currentText()} on {len(inputs)} input(s)…")
-        try:
-            res = infer_paths(model, inputs, out, arch=self.arch.currentText(),
-                              scale=int(self.scale.currentText()), tile=tile)
-        except Exception as e:  # noqa: BLE001
-            self.log.appendPlainText(f"ERROR: {e}")
-            return
-        for p in res.outputs:
-            self.log.appendPlainText(f"  wrote {p}")
-        for e in res.errors:
-            self.log.appendPlainText(f"  ERR {e}")
-        self.log.appendPlainText(f"Done — {len(res.outputs)} file(s).")
+        device = self._resolve_device()
+        self.log.appendPlainText(
+            f"Running {self.arch.currentText()} x{self.scale.currentText()} on "
+            f"{len(inputs)} input(s) [{device}]…"
+        )
+        self.run_btn.setEnabled(False)
+        self._worker = InferWorker(
+            model, inputs, out, self.arch.currentText(),
+            int(self.scale.currentText()), device, tile,
+        )
+        self._worker.line.connect(self.log.appendPlainText)
+        self._worker.done.connect(self._on_done)
+        self._worker.start()
+
+    def _on_done(self, wrote: int, errors: int) -> None:
+        self.run_btn.setEnabled(True)
+        self.log.appendPlainText(f"Done — {wrote} file(s), {errors} error(s).")

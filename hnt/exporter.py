@@ -4,11 +4,12 @@
 * ``.onnx`` — fp32 **and** fp16, via the model-specific export script
   (``scripts/heart/export_minimal.py`` for HEART, ``scripts/nerve/export_dynamic.py``
   for NERVE);
-* ``.ncnn`` — NERVE only, when a converter is available.
+* ``.ncnn`` — NERVE only, via TorchScript + ``pnnx`` (parity-checked against PyTorch).
 """
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
@@ -29,9 +30,9 @@ class ExportResult:
             self.errors = []
 
 
-def _run(cmd: list[str], repo: Path) -> tuple[int, str]:
+def _run(cmd: list[str], repo: Path, tail: int = 2000) -> tuple[int, str]:
     p = subprocess.run(cmd, cwd=repo, capture_output=True, text=True)
-    return p.returncode, (p.stdout + p.stderr)[-2000:]
+    return p.returncode, (p.stdout + p.stderr)[-tail:]
 
 
 def _nerve_arch_from_checkpoint(checkpoint: Path) -> tuple[int, int]:
@@ -104,6 +105,35 @@ def _export_onnx_heart(
     return dst, [warn] if warn else []
 
 
+def _export_ncnn_nerve(
+    repo: Path, checkpoint: Path, out_dir: Path, stem: str, scale: int
+) -> tuple[Path | None, list[str]]:
+    """Convert NERVE → ncnn via TorchScript + pnnx, then verify parity."""
+    script = Path(__file__).with_name("_ncnn_export.py")
+    sub = out_dir / f"NERVE_{scale}x_{stem}_ncnn"
+    rc, log = _run(
+        [sys.executable, str(script), "--checkpoint", str(checkpoint),
+         "--scale", str(scale), "--out-dir", str(sub),
+         "--name", f"NERVE_{scale}x_{stem}", "--verify"],
+        repo, tail=8000,
+    )
+    info = None
+    for line in reversed(log.strip().splitlines()):
+        try:
+            info = json.loads(line)
+            break
+        except json.JSONDecodeError:
+            continue
+    if not info or not info.get("ok"):
+        detail = info.get("detail") if info else log
+        return None, [f"ncnn export failed: {detail}"]
+
+    verify = info.get("verify") or {}
+    if "max_abs_diff" in verify and verify["max_abs_diff"] > 1e-2:
+        return sub, [f"ncnn parity warning: max abs diff {verify['max_abs_diff']:.3g}"]
+    return sub, []
+
+
 def _to_fp16(src: Path, dst: Path) -> str | None:
     """Convert an fp32 ONNX file to fp16. Returns an error string, or None on success."""
     try:
@@ -155,10 +185,12 @@ def export_checkpoint(
             else:
                 res.onnx_fp16 = dst16
 
-    # 3. ncnn — NERVE only, and only if a converter happens to be present.
+    # 3. ncnn — NERVE only (HEART's fused SDPA can't convert).
     if ncnn:
-        res.errors.append(
-            "ncnn export unavailable (add an ncnn converter to enable it)" if model == "NERVE"
-            else "ncnn is NERVE-only"
-        )
+        if model == "NERVE":
+            sub, errs = _export_ncnn_nerve(repo, Path(checkpoint), out_dir, stem, scale)
+            res.errors.extend(errs)
+            res.ncnn_dir = sub
+        else:
+            res.errors.append("ncnn is NERVE-only")
     return res
