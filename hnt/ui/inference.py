@@ -5,6 +5,8 @@ the model name.
 
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
@@ -13,14 +15,14 @@ from PySide6.QtWidgets import (
     QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget,
 )
 
+from ..bootstrap import app_source_dir, runtime_python
 from ..hardware import detect
-from ..infer import IMG_EXTS, infer_paths
 from ..paths import get_paths
 from ..presets import SCALES
 
 
 class InferWorker(QThread):
-    """Runs inference off the UI thread so the window never freezes."""
+    """Run inference in the isolated venv (works in frozen builds, never freezes the UI)."""
 
     line = Signal(str)
     done = Signal(int, int)  # (wrote, errors)
@@ -31,18 +33,31 @@ class InferWorker(QThread):
         self.arch, self.scale, self.device, self.tile = arch, scale, device, tile
 
     def run(self) -> None:
+        src = app_source_dir()
+        cmd = [
+            runtime_python(get_paths()), "-m", "hnt.cli", "infer",
+            "--model", self.model, "--arch", self.arch, "--scale", str(self.scale),
+            "--input", *self.inputs, "--out", self.out,
+            "--device", self.device, "--tile", str(self.tile),
+        ]
+        env = dict(os.environ)
+        env["PYTHONPATH"] = str(src) + os.pathsep + env.get("PYTHONPATH", "")
         try:
-            res = infer_paths(self.model, self.inputs, self.out, arch=self.arch,
-                              scale=self.scale, device=self.device, tile=self.tile)
+            p = subprocess.run(cmd, cwd=str(src), env=env, capture_output=True, text=True)
         except Exception as e:  # noqa: BLE001
             self.line.emit(f"ERROR: {e}")
             self.done.emit(0, 1)
             return
-        for p in res.outputs:
-            self.line.emit(f"  wrote {p}")
-        for e in res.errors:
-            self.line.emit(f"  ERR {e}")
-        self.done.emit(len(res.outputs), len(res.errors))
+        for ln in (p.stdout + p.stderr).splitlines():
+            self.line.emit(ln)
+        wrote = 0
+        for ln in p.stdout.splitlines():
+            if ln.startswith("wrote "):
+                try:
+                    wrote = int(ln.split()[1])
+                except (IndexError, ValueError):
+                    pass
+        self.done.emit(wrote, 0 if p.returncode == 0 else 1)
 
 
 class InferenceWindow(QMainWindow):

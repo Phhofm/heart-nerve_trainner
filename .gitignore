@@ -7,6 +7,8 @@ dist/
 .venv/
 venv/
 
-# Vendored at build time (large binaries) — see packaging/build.md
-packaging/vendor/
+# The pruned trainer IS committed (self-contained tests/builds). Only the large
+# platform-specific `uv` binary is fetched at build time.
+packaging/vendor/uv
+packaging/vendor/uv.exe
 packaging/icon.png

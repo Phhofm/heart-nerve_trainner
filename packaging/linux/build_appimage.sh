@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
-# Build a single-file AppImage for the HEART / NERVE Trainer (Linux).
-# Expects PyInstaller output at dist/HeartNerveTrainer/ and a vendored `uv` +
-# a copy of traiNNer-redux under packaging/vendor/.
+# Build a single-file AppImage from the staged PyInstaller bundle (Linux).
+# The bundle already contains the app, `trainer/`, `uv` and the `hnt` sources.
+# Requires linuxdeploy on PATH (CI downloads it); APPIMAGE_EXTRACT_AND_RUN avoids FUSE.
 set -euo pipefail
 
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$APP_DIR"
+
 APPDIR=AppDir
-rm -rf "$APPDIR" && mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+rm -rf "$APPDIR"
+mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" \
+         "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 
 cp -r dist/HeartNerveTrainer/* "$APPDIR/usr/bin/"
-cp packaging/vendor/uv "$APPDIR/usr/bin/uv"
-cp -r packaging/vendor/trainer "$APPDIR/usr/bin/trainer"
 
 cat > "$APPDIR/usr/share/applications/heart-nerve-trainer.desktop" <<'EOF'
 [Desktop Entry]
@@ -20,9 +23,13 @@ Icon=heart-nerve-trainer
 Categories=Graphics;Education;
 Terminal=false
 EOF
-cp packaging/icon.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/heart-nerve-trainer.png"
 
-# linuxdeploy + appimagetool are expected on PATH (or downloaded by CI).
-linuxdeploy --appdir "$APPDIR" --output appimage
+if [ -f packaging/icon.png ]; then
+  cp packaging/icon.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/heart-nerve-trainer.png"
+fi
+
+export APPIMAGE_EXTRACT_AND_RUN=1
+LINUXDEPLOY="${LINUXDEPLOY:-linuxdeploy}"
+"$LINUXDEPLOY" --appdir "$APPDIR" --output appimage
 mv ./*.AppImage dist/ 2>/dev/null || true
 echo "AppImage built in dist/"

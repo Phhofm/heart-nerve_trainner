@@ -81,6 +81,46 @@ def test_ncnn_infer_arch_from_state_dict():
     assert _infer_arch(sd) == (64, 6)
 
 
+def test_updater_checks_and_downloads_from_manifest(tmp_path):
+    import json
+    import threading
+    from functools import partial
+    from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+    from hnt import updater
+
+    srv = ThreadingHTTPServer(
+        ("127.0.0.1", 0), partial(SimpleHTTPRequestHandler, directory=str(tmp_path))
+    )
+    port = srv.server_address[1]
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        (tmp_path / "installer.bin").write_bytes(b"installer-bytes")
+        manifest = {
+            "version": "99.0.0",
+            "notes": "test release",
+            "assets": {
+                "windows": f"http://127.0.0.1:{port}/installer.bin",
+                "linux": f"http://127.0.0.1:{port}/installer.bin",
+            },
+        }
+        (tmp_path / "latest.json").write_text(json.dumps(manifest))
+        url = f"http://127.0.0.1:{port}/latest.json"
+
+        info = updater.check_for_update(url)
+        assert info is not None and info.version == "99.0.0"
+        assert info.notes == "test release"
+
+        got = updater.download_installer(info, tmp_path / "downloads")
+        assert got.read_bytes() == b"installer-bytes"
+
+        manifest["version"] = "0.0.1"  # older than the installed build
+        (tmp_path / "latest.json").write_text(json.dumps(manifest))
+        assert updater.check_for_update(url) is None
+    finally:
+        srv.shutdown()
+
+
 def test_lq_size_is_multiple_of_window():
     for model in ("HEART", "NERVE"):
         step = ARCH[model]["window"]

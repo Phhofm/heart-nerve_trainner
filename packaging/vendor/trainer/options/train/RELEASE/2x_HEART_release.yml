@@ -1,0 +1,91 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/the-database/traiNNer-redux/refs/heads/master/schemas/redux-config.schema.json
+#########################################################################################
+# HEART 2x release training
+# Finetuned from the 4x release weights (standard HAT/SwinIR chain):
+# body transfers, only the pixelshuffle upsampler stages mismatch and re-init.
+# strict_load_g: false makes this possible (see path section).
+#########################################################################################
+name: 2x_HEART
+scale: 2
+use_amp: true
+amp_bf16: true
+use_channels_last: true
+fast_matmul: false
+use_compile: true
+compile_mode: reduce-overhead
+num_gpu: auto
+manual_seed: 1024
+
+datasets:
+  train:
+    name: LUCID Train
+    type: pairedimagedataset
+    dataroot_gt: [datasets/train/lucid_hc512/hr]
+    dataroot_lq: [datasets/train/lucid_hc512/lr_x2]
+    lq_size: 96
+    use_hflip: true
+    use_rot: true
+    num_worker_per_gpu: 8
+    batch_size_per_gpu: 2
+    accum_iter: 1
+  val:
+    name: Urban100 Val
+    type: pairedimagedataset
+    dataroot_gt: [datasets/val/urban100/hr]
+    dataroot_lq: [datasets/val/urban100/lr_x2]
+    filename_tmpl: "{}x2"
+
+network_g:
+  type: heart
+  use_checkpoint: false
+  rank: 8
+  attention_freq: 2
+
+path:
+  pretrain_network_g: experiments/4x_HEART_pretrain600k/models/net_g_ema_615000.safetensors
+  param_key_g: ~
+  strict_load_g: false  # load 4x weights into the 2x model; upsampler stages re-init
+  resume_state: ~
+
+train:
+  ema_decay: 0.999
+  ema_power: 0.75
+  grad_clip: false
+  grad_clip_max_norm: 100
+  optim_g:
+    type: AdamW
+    lr: !!float 1e-4
+    weight_decay: 0
+    betas: [0.9, 0.99]
+  scheduler:
+    type: MultiStepLR
+    milestones: [100000, 150000]
+    gamma: 0.5
+  total_iter: 200000
+  warmup_iter: -1
+  losses:
+    - type: charbonnierloss
+      loss_weight: 1.0
+
+val:
+  val_enabled: true
+  val_freq: 5000
+  save_img: true
+  tile_size: 0
+  tile_overlap: 8
+  metrics_enabled: true
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 4
+      test_y_channel: true
+    ssim:
+      type: calculate_ssim
+      crop_border: 4
+      test_y_channel: true
+
+logger:
+  print_freq: 100
+  save_checkpoint_freq: 5000
+  save_checkpoint_format: safetensors
+  use_tb_logger: true

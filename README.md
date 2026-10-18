@@ -81,12 +81,22 @@ latest.json        version manifest the in-app updater reads
 ## Status / roadmap
 - ✅ Training GUI (flow, review, dashboard, live metric charts, inference window).
 - ✅ Lucid (CC0) one-click download; pretrain manifest + resolver.
-- ⏳ **Vendor + pin the trainer** under `packaging/vendor/trainer/` and the `uv`
-  binary, then produce real installers (CI already stubbed in
-  `.github/workflows/build-release.yml`).
-- ⏳ Publish `latest.json` + a first Release so the website Download and in-app
-  updates work (auto-update needs the repo public).
+- ✅ Exports `.safetensors` + ONNX fp32/fp16 + `.ncnn` (NERVE, parity-checked via pnnx).
+- ✅ Inference verified end-to-end (2× on a real checkpoint); runs in the isolated venv.
+- ✅ Auto-update path tested against a local `latest.json`.
+- ⏳ Bundle trainer + `uv` (`packaging/make_vendor.py`), then publish installers.
+- ⏳ Publish `latest.json` + a first Release (auto-update needs the repo public).
+- ⏳ 1× pretrains (HEART/NERVE) before 1× is offered in the UI.
 - ⏳ Validate the experimental Modern-perceptual profile with short runs.
+
+### Packaging
+```bash
+python packaging/make_vendor.py --trainer /path/to/traiNNer-redux
+bash packaging/linux/build_portable.sh     # portable Linux bundle in dist/
+```
+The frozen app is a thin UI; training/export/inference always run with the isolated
+venv Python. CI (`.github/workflows/build-release.yml`) builds the native AppImage and
+Windows installer.
 
 ## Credits
 Made by **Philip Hofmann** — [GitHub](https://github.com/Phhofm) ·

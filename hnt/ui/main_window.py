@@ -7,6 +7,7 @@ the "Get help" dialog (§9.5).
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__
+from ..bootstrap import runtime_python
 from ..config_gen import TrainRequest, build_config, write_config
 from ..degradation import DEFAULT_FIDELITY_PRESET, DEFAULT_OTF_PRESET, PRESETS
 from ..diagnostics import help_prompt, system_report
@@ -76,11 +78,13 @@ class ExportWorker(QThread):
     line = Signal(str)
     done = Signal(str, bool)  # (out_dir, ok)
 
-    def __init__(self, repo, checkpoint, out_dir, model, scale, *, fp32, fp16, ncnn):
+    def __init__(self, repo, checkpoint, out_dir, model, scale, *, fp32, fp16, ncnn,
+                 python_exe=None):
         super().__init__()
         self.repo, self.checkpoint, self.out_dir = repo, checkpoint, out_dir
         self.model, self.scale = model, scale
         self.fp32, self.fp16, self.ncnn = fp32, fp16, ncnn
+        self.python_exe = python_exe
 
     def run(self) -> None:
         from ..exporter import export_checkpoint
@@ -89,6 +93,7 @@ class ExportWorker(QThread):
             res = export_checkpoint(
                 self.repo, self.checkpoint, self.out_dir, self.model, self.scale,
                 fp32=self.fp32, fp16=self.fp16, ncnn=self.ncnn,
+                python_exe=self.python_exe,
             )
             for err in res.errors:
                 self.line.emit(f"export: {err}")
@@ -101,19 +106,41 @@ class ExportWorker(QThread):
             self.done.emit("", False)
 
 
+class SetupWorker(QThread):
+    """First-run dependency install into the isolated venv (never the system Python)."""
+
+    line = Signal(str)
+    done = Signal(bool, str)
+
+    def __init__(self, paths):
+        super().__init__()
+        self.paths = paths
+
+    def run(self) -> None:
+        try:
+            from ..bootstrap import bootstrap
+
+            bootstrap(self.paths, on_log=self.line.emit)
+            self.done.emit(True, "")
+        except Exception as e:  # noqa: BLE001
+            self.done.emit(False, repr(e))
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.paths = get_paths()
         self.hw = detect()
+        self.py = runtime_python(self.paths)
         self.setWindowTitle(f"HEART / NERVE Trainer  v{__version__}")
         self.resize(1120, 760)
-        self.runner = TrainRunner(self.paths.repo, self.paths.logs)
+        self.runner = TrainRunner(self.paths.repo, self.paths.logs, python_exe=self.py)
         self.worker: TrainWorker | None = None
         self._stopped = False
         self._build_ui()
         self._refresh_autoparams()
         QTimer.singleShot(1500, self._startup_update_check)  # non-blocking update notice
+        QTimer.singleShot(400, self._first_run_check)
 
     # ---------- UI ----------
     def _build_ui(self) -> None:
@@ -263,8 +290,10 @@ class MainWindow(QMainWindow):
         helpbtn = QPushButton("Get help / report"); helpbtn.clicked.connect(lambda: self._help("manual"))
         updbtn = QPushButton("Check updates"); updbtn.clicked.connect(self._check_updates)
         clnbtn = QPushButton("Clean up disk"); clnbtn.clicked.connect(self._cleanup)
+        setupbtn = QPushButton("Set up / repair"); setupbtn.clicked.connect(self._setup_env)
         inferbtn = QPushButton("Inference…"); inferbtn.clicked.connect(self._open_inference)
-        row = QHBoxLayout(); row.addWidget(stop); row.addWidget(helpbtn); row.addWidget(updbtn); row.addWidget(clnbtn); row.addWidget(inferbtn); dv.addLayout(row)
+        row = QHBoxLayout(); row.addWidget(stop); row.addWidget(helpbtn); row.addWidget(updbtn)
+        row.addWidget(clnbtn); row.addWidget(setupbtn); row.addWidget(inferbtn); dv.addLayout(row)
         cols.addWidget(dash, 4)
 
         self.timer = QTimer(self); self.timer.setInterval(1000); self.timer.timeout.connect(self._tick)
@@ -483,7 +512,7 @@ class MainWindow(QMainWindow):
         self.export_worker = ExportWorker(
             self.paths.repo, ckpts[-1], out_dir, req.model, req.scale,
             fp32=self.e_onnx32.isChecked(), fp16=self.e_onnx16.isChecked(),
-            ncnn=self.e_ncnn.isChecked(),
+            ncnn=self.e_ncnn.isChecked(), python_exe=self.py,
         )
         self.export_worker.line.connect(self.log.appendPlainText)
         self.export_worker.done.connect(self._on_export_done)
@@ -546,6 +575,49 @@ class MainWindow(QMainWindow):
             return
         if info is not None:
             self.status.setText(f"Update {info.version} available (button: 'Check updates').")
+
+    def _first_run_check(self) -> None:
+        """Offer setup once, so a freshly installed app can actually train."""
+        from ..bootstrap import is_setup_complete
+
+        if is_setup_complete(self.paths):
+            return
+        if Path(self.py) == Path(sys.executable) and self._has_torch(self.py):
+            return  # dev checkout using an already-working interpreter
+        if QMessageBox.question(
+            self, "First-time setup",
+            "Set up the training environment now?\n\n"
+            "This downloads PyTorch and friends into the app's own folder "
+            "(~2–3 GB, one time). Your system Python is never modified.",
+        ) == QMessageBox.StandardButton.Yes:
+            self._setup_env()
+
+    @staticmethod
+    def _has_torch(py: str) -> bool:
+        try:
+            return subprocess.run(
+                [py, "-c", "import torch"], capture_output=True, timeout=20
+            ).returncode == 0
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _setup_env(self) -> None:
+        self.train_btn.setEnabled(False)
+        self.status.setText("setting up environment (one time)…")
+        self.log.appendPlainText("Setting up the isolated training environment …")
+        self._setup_worker = SetupWorker(self.paths)
+        self._setup_worker.line.connect(self.log.appendPlainText)
+        self._setup_worker.done.connect(self._on_setup_done)
+        self._setup_worker.start()
+
+    def _on_setup_done(self, ok: bool, error: str) -> None:
+        self.train_btn.setEnabled(True)
+        if ok:
+            self.status.setText("setup complete — ready to train")
+            self.log.appendPlainText("Setup complete.")
+        else:
+            self.status.setText("setup failed")
+            self._help("setup", error)
 
     def _open_inference(self) -> None:
         from .inference import InferenceWindow

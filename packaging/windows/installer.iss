@@ -22,9 +22,9 @@ ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
 
 [Files]
+; The staged PyInstaller folder already contains the app, `trainer/`, `uv.exe`
+; and the `hnt` sources — keep them together so find_repo()/uv_path() resolve.
 Source: "dist\HeartNerveTrainer\*"; DestDir: "{app}\app"; Flags: recursesubdirs
-Source: "packaging\vendor\uv.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
-Source: "packaging\vendor\trainer\*"; DestDir: "{app}\trainer"; Flags: recursesubdirs
 
 [Icons]
 Name: "{userprograms}\{#AppName}"; Filename: "{app}\app\{#AppExe}"

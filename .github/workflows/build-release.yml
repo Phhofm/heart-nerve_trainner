@@ -1,11 +1,12 @@
-# Build the app installers on every tag and attach them to a GitHub Release.
-# (This file is a template for the standalone `heart-nerve-trainer` repo.)
 name: build-release
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   windows:
@@ -14,11 +15,23 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - name: Install deps
-        run: pip install pyinstaller -e .
+      - name: Install build tools
+        run: pip install pyinstaller uv -e .
       - name: Freeze app (onedir)
-        run: pyinstaller --noconfirm --windowed --name HeartNerveTrainer app.py
-      # Bundle the trainer repo + a `uv` binary next to the app (see packaging/build.md).
+        run: >
+          pyinstaller --noconfirm --clean --onedir --windowed
+          --name HeartNerveTrainer
+          --exclude-module torch --exclude-module torchvision
+          --exclude-module onnx --exclude-module onnxruntime
+          --exclude-module onnxconverter_common --exclude-module onnxsim
+          --exclude-module pnnx --exclude-module ncnn
+          app.py
+      - name: Stage trainer + uv + CLI sources
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse -Force hnt dist/HeartNerveTrainer/hnt
+          Copy-Item -Recurse -Force packaging/vendor/trainer dist/HeartNerveTrainer/trainer
+          Copy-Item -Force (Get-Command uv).Source dist/HeartNerveTrainer/uv.exe
       - name: Build installer (Inno Setup)
         run: iscc packaging/windows/installer.iss
       - uses: actions/upload-artifact@v4
@@ -32,21 +45,34 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - name: Install deps
-        run: pip install pyinstaller -e .
-      - name: Freeze app
-        run: pyinstaller --noconfirm --name HeartNerveTrainer app.py
+      - name: System libs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libglib2.0-0
+      - name: Install build tools
+        run: pip install pyinstaller uv -e .
+      - name: Freeze + portable bundle
+        env: { PYTHON: python }
+        run: bash packaging/linux/build_portable.sh
       - name: Build AppImage
-        run: bash packaging/linux/build_appimage.sh
+        env:
+          PYTHON: python
+          LINUXDEPLOY: ./linuxdeploy
+        run: |
+          wget -q -O linuxdeploy \
+            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy
+          bash packaging/linux/build_appimage.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: appimage
-          path: dist/*.AppImage
+          name: linux
+          path: |
+            dist/*.AppImage
+            dist/*.tar.gz
 
   release:
     needs: [windows, linux]
     runs-on: ubuntu-latest
-    permissions: { contents: write }
     steps:
       - uses: actions/download-artifact@v4
         with: { path: artifacts }

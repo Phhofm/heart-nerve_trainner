@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Build a portable Linux bundle (frozen app + vendored trainer + uv).
+# A native AppImage additionally needs linuxdeploy/appimagetool on PATH (CI does this).
+set -euo pipefail
+
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$APP_DIR"
+
+PY="${PYTHON:-../venv/bin/python}"
+
+if [ ! -d packaging/vendor/trainer ]; then
+  "$PY" packaging/make_vendor.py --trainer "${TRAINER_REPO:-../}"
+fi
+
+"$PY" -m PyInstaller --noconfirm --clean --onedir --windowed \
+  --name HeartNerveTrainer \
+  --collect-submodules pyqtgraph \
+  --exclude-module torch --exclude-module torchvision \
+  --exclude-module onnx --exclude-module onnxruntime \
+  --exclude-module onnxconverter_common --exclude-module onnxsim \
+  --exclude-module pnnx --exclude-module ncnn \
+  --exclude-module pyqtgraph.opengl \
+  app.py
+
+DIST="dist/HeartNerveTrainer"
+rm -rf "$DIST/hnt" "$DIST/trainer" "$DIST/uv"
+cp -r hnt "$DIST/hnt"
+cp -r packaging/vendor/trainer "$DIST/trainer"
+cp packaging/vendor/uv "$DIST/uv"
+chmod +x "$DIST/uv"
+
+tar -czf "dist/HeartNerveTrainer-linux-x86_64.tar.gz" -C dist HeartNerveTrainer
+echo "built dist/HeartNerveTrainer-linux-x86_64.tar.gz"

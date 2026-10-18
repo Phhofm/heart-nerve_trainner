@@ -35,6 +35,9 @@ def find_repo() -> Path:
         bundled = parent / "trainer"
         if _looks_like_repo(bundled):
             return bundled.resolve()
+        vendored = parent / "packaging" / "vendor" / "trainer"
+        if _looks_like_repo(vendored):
+            return vendored.resolve()
 
     cwd = Path.cwd().resolve()
     for parent in [cwd, *cwd.parents]:

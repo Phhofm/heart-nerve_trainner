@@ -55,7 +55,15 @@ def required_deps() -> Deps:
 
 
 def uv_path() -> str | None:
-    return shutil.which("uv") or os.environ.get("HNT_UV")
+    """Find uv: $HNT_UV → bundled next to the executable → PATH."""
+    env = os.environ.get("HNT_UV")
+    if env and Path(env).is_file():
+        return env
+    exe_dir = Path(sys.executable).resolve().parent
+    for cand in (exe_dir / "uv", exe_dir / "uv.exe"):
+        if cand.is_file():
+            return str(cand)
+    return shutil.which("uv")
 
 
 def is_setup_complete(paths: Paths) -> bool:
@@ -71,6 +79,32 @@ def python_exe(paths: Paths, use_current_env: bool = False) -> str:
         if p.is_file():
             return str(p)
     return sys.executable
+
+
+def is_frozen() -> bool:
+    """True when running from a PyInstaller bundle."""
+    return bool(getattr(sys, "frozen", False))
+
+
+def runtime_python(paths: Paths, use_current_env: bool | None = None) -> str:
+    """Interpreter for training/export/inference.
+
+    In a frozen build the app binary is NOT a Python interpreter, so heavy work must
+    run with the isolated venv Python. In dev, the current env is already correct.
+    """
+    if use_current_env is None:
+        use_current_env = not is_frozen()
+    return python_exe(paths, use_current_env=use_current_env)
+
+
+def app_source_dir() -> Path:
+    """Directory containing the ``hnt`` package (for ``python -m hnt`` subprocesses)."""
+    if is_frozen():
+        base = Path(sys.executable).resolve().parent
+        if (base / "hnt").is_dir():
+            return base
+        return Path(getattr(sys, "_MEIPASS", base))
+    return Path(__file__).resolve().parent.parent
 
 
 def bootstrap(paths: Paths, on_log=lambda m: None, cuda: bool | None = None) -> None:

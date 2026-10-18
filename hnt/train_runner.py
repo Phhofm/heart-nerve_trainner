@@ -96,14 +96,16 @@ def read_telemetry() -> Telemetry:
 
 
 class TrainRunner:
-    def __init__(self, repo: Path, logs_dir: Path, nice: bool = True):
+    def __init__(self, repo: Path, logs_dir: Path, nice: bool = True,
+                 python_exe: str | None = None):
         self.repo = repo
         self.logs_dir = logs_dir
         self.nice = nice
+        self.python_exe = python_exe
         self.proc: subprocess.Popen | None = None
 
     def _cmd(self, cfg_path: Path) -> list[str]:
-        py = sys.executable
+        py = self.python_exe or sys.executable
         base = [py, "train.py", "-opt", str(cfg_path), "--auto_resume"]
         if self.nice and os.name != "nt":
             return ["nice", "-n", "10", "ionice", "-c", "3", *base]

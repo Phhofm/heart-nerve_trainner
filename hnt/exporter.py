@@ -40,7 +40,7 @@ def _nerve_arch_from_checkpoint(checkpoint: Path) -> tuple[int, int]:
     try:
         from safetensors import safe_open
 
-        with safe_open(str(checkpoint), framework="pt", device="cpu") as f:
+        with safe_open(str(checkpoint), framework="numpy", device="cpu") as f:
             keys = list(f.keys())
             dim = int(f.get_slice("blocks.0.conv1.weight").get_shape()[0])
             blocks = {int(k.split(".")[1]) for k in keys if k.startswith("blocks.")}
@@ -69,7 +69,7 @@ def _embed_onnx(src: Path, dst: Path) -> str | None:
 
 
 def _export_onnx_nerve(
-    repo: Path, checkpoint: Path, out_dir: Path, stem: str, scale: int
+    repo: Path, checkpoint: Path, out_dir: Path, stem: str, scale: int, py: str
 ) -> tuple[Path | None, list[str]]:
     script = repo / "scripts/nerve/export_dynamic.py"
     if not script.is_file():
@@ -77,7 +77,7 @@ def _export_onnx_nerve(
     dim, n_blocks = _nerve_arch_from_checkpoint(checkpoint)
     tmp = out_dir / "_nerve_onnx"
     rc, log = _run(
-        [sys.executable, str(script), "--checkpoint", str(checkpoint),
+        [py, str(script), "--checkpoint", str(checkpoint),
          "--scale", str(scale), "--dim", str(dim), "--n-blocks", str(n_blocks),
          "--out-root", str(tmp)],
         repo,
@@ -92,13 +92,13 @@ def _export_onnx_nerve(
 
 
 def _export_onnx_heart(
-    repo: Path, checkpoint: Path, out_dir: Path, stem: str, scale: int
+    repo: Path, checkpoint: Path, out_dir: Path, stem: str, scale: int, py: str
 ) -> tuple[Path | None, list[str]]:
     script = repo / "scripts/heart/export_minimal.py"
     if not script.is_file():
         return None, ["heart onnx exporter not found (scripts/heart/export_minimal.py)"]
     dst = out_dir / f"HEART_{scale}x_{stem}_fp32.onnx"
-    rc, log = _run([sys.executable, str(script), str(checkpoint), str(dst), str(scale)], repo)
+    rc, log = _run([py, str(script), str(checkpoint), str(dst), str(scale)], repo)
     if rc != 0 or not dst.is_file():
         return None, [f"onnx fp32 export failed: {log}"]
     warn = _embed_onnx(dst, dst)
@@ -106,13 +106,13 @@ def _export_onnx_heart(
 
 
 def _export_ncnn_nerve(
-    repo: Path, checkpoint: Path, out_dir: Path, stem: str, scale: int
+    repo: Path, checkpoint: Path, out_dir: Path, stem: str, scale: int, py: str
 ) -> tuple[Path | None, list[str]]:
     """Convert NERVE → ncnn via TorchScript + pnnx, then verify parity."""
     script = Path(__file__).with_name("_ncnn_export.py")
     sub = out_dir / f"NERVE_{scale}x_{stem}_ncnn"
     rc, log = _run(
-        [sys.executable, str(script), "--checkpoint", str(checkpoint),
+        [py, str(script), "--checkpoint", str(checkpoint),
          "--scale", str(scale), "--out-dir", str(sub),
          "--name", f"NERVE_{scale}x_{stem}", "--verify"],
         repo, tail=8000,
@@ -134,25 +134,19 @@ def _export_ncnn_nerve(
     return sub, []
 
 
-def _to_fp16(src: Path, dst: Path) -> str | None:
-    """Convert an fp32 ONNX file to fp16. Returns an error string, or None on success."""
-    try:
-        import onnx
-        from onnxconverter_common import float16
-    except ImportError as e:
-        return f"onnx fp16 skipped (needs onnxconverter-common): {e}"
-    try:
-        model16 = float16.convert_float_to_float16(onnx.load(str(src)))
-        onnx.save_model(model16, str(dst), save_as_external_data=False)
-        return None
-    except Exception as e:  # noqa: BLE001
-        return f"onnx fp16 conversion failed: {e}"
+def _to_fp16(src: Path, dst: Path, py: str) -> str | None:
+    """Convert fp32 ONNX → fp16 in the venv. Returns an error string, or None on success."""
+    script = Path(__file__).with_name("_fp16.py")
+    rc, log = _run([py, str(script), str(src), str(dst)], Path(src).parent)
+    return None if rc == 0 and dst.is_file() else f"onnx fp16 conversion failed: {log}"
 
 
 def export_checkpoint(
     repo: Path, checkpoint: Path, out_dir: Path, model: str, scale: int,
     *, fp32: bool = True, fp16: bool = True, ncnn: bool = False,
+    python_exe: str | None = None,
 ) -> ExportResult:
+    py = python_exe or sys.executable
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = Path(checkpoint).stem
@@ -170,16 +164,16 @@ def export_checkpoint(
     onnx_fp32 = None
     if fp32 or fp16:
         if model == "NERVE":
-            onnx_fp32, errs = _export_onnx_nerve(repo, Path(checkpoint), out_dir, stem, scale)
+            onnx_fp32, errs = _export_onnx_nerve(repo, Path(checkpoint), out_dir, stem, scale, py)
         else:
-            onnx_fp32, errs = _export_onnx_heart(repo, Path(checkpoint), out_dir, stem, scale)
+            onnx_fp32, errs = _export_onnx_heart(repo, Path(checkpoint), out_dir, stem, scale, py)
         res.errors.extend(errs)
     if onnx_fp32 is not None:
         if fp32:
             res.onnx_fp32 = onnx_fp32
         if fp16:
             dst16 = out_dir / f"{model}_{scale}x_{stem}_fp16.onnx"
-            err = _to_fp16(onnx_fp32, dst16)
+            err = _to_fp16(onnx_fp32, dst16, py)
             if err:
                 res.errors.append(err)
             else:
@@ -188,7 +182,7 @@ def export_checkpoint(
     # 3. ncnn — NERVE only (HEART's fused SDPA can't convert).
     if ncnn:
         if model == "NERVE":
-            sub, errs = _export_ncnn_nerve(repo, Path(checkpoint), out_dir, stem, scale)
+            sub, errs = _export_ncnn_nerve(repo, Path(checkpoint), out_dir, stem, scale, py)
             res.errors.extend(errs)
             res.ncnn_dir = sub
         else:
