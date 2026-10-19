@@ -29,7 +29,7 @@ from ..downloader import download_lucid, lucid_hr_dir, lucid_home
 from ..hardware import detect
 from ..paths import get_paths
 from ..presets import ARCH, DEFAULT_PROFILE, PROFILES, auto_params, visible_profiles
-from ..train_runner import TrainRunner, read_telemetry
+from ..train_runner import TrainRunner, looks_like_oom, read_telemetry
 from . import theme
 from .chart import MetricsChart
 
@@ -137,6 +137,8 @@ class MainWindow(QMainWindow):
         self.runner = TrainRunner(self.paths.repo, self.paths.logs, python_exe=self.py)
         self.worker: TrainWorker | None = None
         self._stopped = False
+        self._oom_retries = 0
+        self._compile_retries = 0
         self._build_ui()
         self._refresh_autoparams()
         QTimer.singleShot(1500, self._startup_update_check)  # non-blocking update notice
@@ -314,11 +316,14 @@ class MainWindow(QMainWindow):
     def _hw_chips(self) -> list[str]:
         hw = self.hw
         gpu = hw.gpus[0] if hw.gpus else None
+        amp = (f"AMP: {'bf16' if hw.supports_bf16 else 'fp16'}" if gpu
+               else "AMP: off (CPU)")
         return [
             f"{hw.os} {hw.os_version}",
             hw.cpu,
             f"{hw.ram_gb:g} GB RAM",
             f"{gpu.name} · {gpu.vram_gb:g} GB" if gpu else "CPU only",
+            amp,
             f"Python {hw.python}",
         ]
 
@@ -414,6 +419,7 @@ class MainWindow(QMainWindow):
             batch=self.batch.value(), lq_size=self.patch.value(), iters=self.iters.value(),
             lr=self.lr_edit.value() if self.expert.isChecked() else None,
             use_compile=self.compile_cb.isChecked(), use_checkpoint=self.ckpt_cb.isChecked(),
+            amp_bf16=self.hw.supports_bf16,
             val_perceptual_metrics=self.perceptual.isChecked(),
             name=f"{self.model.currentData()}_{self.scale.currentData()}x_run",
         )
@@ -433,7 +439,10 @@ class MainWindow(QMainWindow):
                f"Config data.type: {tds.get('type')}")
         QMessageBox.information(self, "Review settings", msg)
 
-    def _train(self) -> None:
+    def _train(self, _retry: bool = False) -> None:
+        if not _retry:
+            self._oom_retries = 0
+            self._compile_retries = 0
         req = self._request()
         if not req.hr_dir:
             return self._help("setup", "No HR folder selected.")
@@ -492,10 +501,42 @@ class MainWindow(QMainWindow):
             if self._stopped:
                 self.status.setText("stopped")
                 return
+            if self._maybe_auto_retry(info):
+                return
             self.status.setText("failed")
             return self._help("training", info)
         self.status.setText("training done — exporting model…")
         self._export_model()
+
+    def _maybe_auto_retry(self, info: str) -> bool:
+        """Beginner-friendly recovery: shrink on OOM, drop compile on compile errors."""
+        log = Path(info)
+        if not log.is_file():
+            return False
+        if looks_like_oom(log.read_text(errors="ignore")) and self._oom_retries < 2:
+            if self.patch.value() > 64:
+                self.patch.setValue(max(64, self.patch.value() // 2))
+            elif self.batch.value() > 1:
+                self.batch.setValue(max(1, self.batch.value() // 2))
+            else:
+                return False
+            self._oom_retries += 1
+            self.log.appendPlainText(
+                f"Out of memory — retrying with patch {self.patch.value()}, "
+                f"batch {self.batch.value()} …"
+            )
+            self.status.setText("out of memory — retrying with smaller settings")
+            QTimer.singleShot(0, lambda: self._train(_retry=True))
+            return True
+        if (self.compile_cb.isChecked() and self._compile_retries < 1
+                and self.runner.compile_failed(log)):
+            self.compile_cb.setChecked(False)
+            self._compile_retries += 1
+            self.log.appendPlainText("torch.compile failed — retrying without compile …")
+            self.status.setText("compile failed — retrying without compile")
+            QTimer.singleShot(0, lambda: self._train(_retry=True))
+            return True
+        return False
 
     def _export_model(self) -> None:
         req = getattr(self, "_last_req", None)

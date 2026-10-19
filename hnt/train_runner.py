@@ -36,6 +36,17 @@ def _clean(s: str) -> str:
     return _ANSI.sub("", s)
 
 
+_OOM_HINTS = (
+    "out of memory", "cuda oom", "outofmemoryerror",
+    "cudnn_status_alloc_failed", "cublas_status_alloc_failed",
+)
+
+
+def looks_like_oom(text: str) -> bool:
+    low = text.lower()
+    return any(h in low for h in _OOM_HINTS)
+
+
 def parse_metrics(line: str) -> dict[str, float]:
     """Pull ``# <name> : <value>`` validation metrics out of one log line.
 

@@ -15,6 +15,7 @@ from pathlib import Path
 
 from .config_gen import TrainRequest, build_config, write_config
 from .exporter import export_checkpoint
+from .hardware import detect
 from .paths import Paths
 
 
@@ -53,6 +54,7 @@ def run_selftest(paths: Paths, python_exe: str | None = None, on_log=lambda m: N
         model="NERVE", scale=2, profile="FIDELITY", data_mode="OTF",
         hr_dir=str(hr), degradation="bicubic",
         batch=2, lq_size=64, iters=_SMOKE_ITERS, name=run_name, use_compile=False,
+        amp_bf16=detect().supports_bf16,
     )
     cfg = build_config(req, paths.repo)
     cfg["logger"]["save_checkpoint_freq"] = 50

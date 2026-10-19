@@ -28,6 +28,7 @@ def _cmd_detect(_: argparse.Namespace) -> int:
 
 
 def _cmd_config(a: argparse.Namespace) -> int:
+    from .hardware import detect
     from .paths import find_repo
 
     repo = find_repo()
@@ -37,6 +38,7 @@ def _cmd_config(a: argparse.Namespace) -> int:
         hr_dir=a.hr, lr_dir=a.lr or "", val_hr_dir=a.val_hr or "", val_lr_dir=a.val_lr or "",
         degradation=a.degradation, batch=a.batch or ap.batch, lq_size=a.lq or ap.lq_size,
         iters=a.iters, name=a.name, val_perceptual_metrics=a.perceptual_metrics,
+        amp_bf16=detect().supports_bf16,
     )
     cfg = build_config(req, repo)
     out = write_config(cfg, Path(a.out))

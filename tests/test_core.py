@@ -54,6 +54,33 @@ def test_perceptual_metrics_are_opt_in():
     assert on["val"]["metrics"]["lpips"]["type"] == "calculate_lpips"
 
 
+@requires_repo
+def test_compile_mode_and_amp_are_template_aware():
+    cfg = build_config(_req(), REPO)
+    assert cfg["compile_mode"] == "default"  # from 2x_NERVE_release.yml
+    assert cfg["amp_bf16"] is True
+
+    forced = build_config(_req(compile_mode="max-autotune-no-cudagraphs", amp_bf16=False), REPO)
+    assert forced["compile_mode"] == "max-autotune-no-cudagraphs"
+    assert forced["amp_bf16"] is False
+
+
+@requires_repo
+def test_loader_pipeline_defaults():
+    train = build_config(_req(), REPO)["datasets"]["train"]
+    assert train["persistent_workers"] is True
+    assert train["num_worker_per_gpu"] >= 2
+    assert train["prefetch_factor"] == 2
+
+
+def test_oom_detection():
+    from hnt.train_runner import looks_like_oom
+
+    assert looks_like_oom("RuntimeError: CUDA out of memory. Tried to allocate 2 GiB")
+    assert looks_like_oom("torch.OutOfMemoryError: CUDA out of memory")
+    assert not looks_like_oom("FileNotFoundError: dataset missing")
+
+
 def test_nerve_arch_inferred_from_checkpoint(tmp_path):
     torch = pytest.importorskip("torch")
     pytest.importorskip("safetensors.torch")

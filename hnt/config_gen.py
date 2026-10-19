@@ -9,6 +9,7 @@ fidelity when no template is found.
 from __future__ import annotations
 
 import copy
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,11 @@ class ConfigError(RuntimeError):
     pass
 
 
+def _num_workers() -> int:
+    """Enough loader processes to keep the GPU fed without starving the desktop."""
+    return min(8, max(2, (os.cpu_count() or 4) // 2))
+
+
 @dataclass
 class TrainRequest:
     model: Model
@@ -74,6 +80,10 @@ class TrainRequest:
     strict_load: bool = True
     use_compile: bool = True
     use_checkpoint: bool = False
+    # None = keep the template's proven value. bf16 is right for Ampere+; older
+    # cards should pass False to use fp16.
+    amp_bf16: bool | None = None
+    compile_mode: str | None = None
     val_perceptual_metrics: bool = False  # DISTS/LPIPS — accurate but much slower
     name: str = "hnt_run"
     extra: dict[str, Any] = field(default_factory=dict)
@@ -91,14 +101,18 @@ def _synth_paired(req: TrainRequest) -> dict[str, Any]:
     arch = ARCH[req.model]
     return {
         "name": req.name, "scale": req.scale,
-        "use_amp": True, "amp_bf16": True, "use_channels_last": True,
-        "fast_matmul": False, "use_compile": req.use_compile, "compile_mode": "reduce-overhead",
+        "use_amp": True,
+        "amp_bf16": True if req.amp_bf16 is None else req.amp_bf16,
+        "use_channels_last": True,
+        "fast_matmul": False, "use_compile": req.use_compile,
+        "compile_mode": req.compile_mode or "max-autotune-no-cudagraphs",
         "num_gpu": "auto", "manual_seed": 1024,
         "datasets": {
             "train": {"name": "Train", "type": "pairedimagedataset",
                       "dataroot_gt": [req.hr_dir], "dataroot_lq": [req.lr_dir],
                       "lq_size": req.lq_size, "use_hflip": True, "use_rot": True,
-                      "num_worker_per_gpu": min(8, max(2, req.batch)),
+                      "num_worker_per_gpu": _num_workers(), "persistent_workers": True,
+                      "prefetch_factor": 2,
                       "batch_size_per_gpu": req.batch, "accum_iter": 1},
             "val": {"name": "Val", "type": "pairedimagedataset",
                     "dataroot_gt": [req.val_hr_dir], "dataroot_lq": [req.val_lr_dir],
@@ -134,9 +148,10 @@ def _patch(cfg: dict[str, Any], req: TrainRequest) -> dict[str, Any]:
     cfg["name"] = req.name
     cfg["scale"] = req.scale
     cfg.setdefault("use_amp", True)
-    cfg["amp_bf16"] = True
+    cfg["amp_bf16"] = True if req.amp_bf16 is None else req.amp_bf16
     cfg["use_compile"] = req.use_compile
-    cfg["compile_mode"] = "reduce-overhead"
+    if req.compile_mode:  # else keep the template's proven mode (reduce-overhead is not universal)
+        cfg["compile_mode"] = req.compile_mode
     cfg["use_channels_last"] = True
 
     ds = cfg.setdefault("datasets", {})
@@ -154,7 +169,9 @@ def _patch(cfg: dict[str, Any], req: TrainRequest) -> dict[str, Any]:
             cfg[k] = v
     train["lq_size"] = req.lq_size
     train["batch_size_per_gpu"] = req.batch
-    train["num_worker_per_gpu"] = min(8, max(2, req.batch))
+    train["num_worker_per_gpu"] = _num_workers()
+    train["persistent_workers"] = True
+    train["prefetch_factor"] = 2
     train["use_hflip"] = True
     train["use_rot"] = True
 

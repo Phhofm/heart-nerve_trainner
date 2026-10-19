@@ -19,6 +19,7 @@ class GPU:
     vram_gb: float
     driver: str | None = None
     cuda_runtime: str | None = None
+    compute_cap: float | None = None
 
 
 @dataclass
@@ -38,19 +39,36 @@ class Hardware:
     def best_vram_gb(self) -> float:
         return max((g.vram_gb for g in self.gpus), default=0.0)
 
+    @property
+    def supports_bf16(self) -> bool:
+        """Ampere+ (compute 8.0+) has fast bf16; older cards should use fp16.
+
+        If the driver does not report a capability we keep the bf16 default.
+        """
+        caps = [g.compute_cap for g in self.gpus if g.compute_cap]
+        return True if not caps else max(caps) >= 8.0
+
+
+def _smi(exe: str, fields: str) -> str:
+    return subprocess.run(
+        [exe, f"--query-gpu={fields}", "--format=csv,noheader,nounits"],
+        capture_output=True, text=True, timeout=10, check=True,
+    ).stdout.strip()
+
 
 def _nvidia_smi_query() -> list[GPU]:
     exe = shutil.which("nvidia-smi")
     if not exe:
         return []
     try:
-        out = subprocess.run(
-            [exe, "--query-gpu=name,memory.total,driver_version",
-             "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=10, check=True,
-        ).stdout.strip()
+        out = _smi(exe, "name,memory.total,driver_version,compute_cap")
+        has_cap = True
     except (subprocess.SubprocessError, OSError):
-        return []
+        try:
+            out = _smi(exe, "name,memory.total,driver_version")  # older driver
+            has_cap = False
+        except (subprocess.SubprocessError, OSError):
+            return []
     gpus: list[GPU] = []
     for line in out.splitlines():
         parts = [p.strip() for p in line.split(",")]
@@ -59,7 +77,14 @@ def _nvidia_smi_query() -> list[GPU]:
                 vram = float(parts[1]) / 1024.0  # MiB -> GiB
             except ValueError:
                 vram = 0.0
-            gpus.append(GPU(name=parts[0], vram_gb=round(vram, 1), driver=parts[2]))
+            cap = None
+            if has_cap and len(parts) >= 4:
+                try:
+                    cap = float(parts[3])
+                except ValueError:
+                    cap = None
+            gpus.append(GPU(name=parts[0], vram_gb=round(vram, 1), driver=parts[2],
+                            compute_cap=cap))
     return gpus
 
 

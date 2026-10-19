@@ -26,6 +26,9 @@ No GPU? The app warns that CPU training is very slow (possible for NERVE).
 ## Features
 - **Guided defaults** — NERVE + 2× + Fidelity are pre-selected and outlined in green;
   everything fiddly (degradation, val sets, batch/patch/LR) stays hidden until **Expert mode**.
+- **Self-healing runs** — on CUDA out-of-memory it retries with a smaller patch/batch;
+  if `torch.compile` fails it retries without it.
+- **Right precision automatically** — bf16 on Ampere+, fp16 on older cards.
 - **Live validation graphs** — PSNR / SSIM (fidelity) and DISTS / LPIPS (perceptual).
 - **Exports by itself** — when training finishes it writes `.safetensors`, `.onnx`
   (fp32 + fp16) and, for NERVE, `.ncnn` into your output folder.
