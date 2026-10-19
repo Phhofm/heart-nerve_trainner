@@ -67,6 +67,16 @@ def _run_full(net, img: np.ndarray, scale: int, device: str) -> np.ndarray:
     return _to_uint8(out)
 
 
+def _choose_tile(h: int, w: int, requested: int) -> int:
+    """Resolve the tiling request: -1 = whole image, 0 = safe auto, >0 = explicit."""
+    if requested < 0:
+        return 0
+    if requested > 0:
+        return requested
+    # Auto: whole image for modest inputs, tiled for big ones (avoids OOM).
+    return 0 if h * w <= 1_200_000 and max(h, w) <= 1280 else 512
+
+
 def _run_tiled(net, img: np.ndarray, scale: int, device: str, tile: int, overlap: int) -> np.ndarray:
     """Simple tiled inference with linear overlap blending (seam-reduced)."""
     import torch
@@ -133,7 +143,9 @@ def infer_paths(
     for f in files:
         try:
             img = _load_image(f)
-            res = _run_tiled(net, img, scale, device, tile, overlap) if tile > 0 else _run_full(net, img, scale, device)
+            tile_px = _choose_tile(img.shape[0], img.shape[1], tile)
+            res = (_run_tiled(net, img, scale, device, tile_px, overlap) if tile_px
+                   else _run_full(net, img, scale, device))
             dst = out_dir / f"{f.stem}_{suffix}.png"
             _save_image(res, dst)
             outputs.append(dst)

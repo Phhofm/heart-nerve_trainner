@@ -81,6 +81,35 @@ def test_oom_detection():
     assert not looks_like_oom("FileNotFoundError: dataset missing")
 
 
+@requires_repo
+def test_validation_is_tiled_by_default():
+    val = build_config(_req(), REPO)["val"]
+    assert val["tile_size"] == 256
+    assert val["tile_overlap"] == 16
+    assert build_config(_req(val_tile_size=0), REPO)["val"]["tile_size"] == 0
+
+
+def test_choose_tile_auto():
+    from hnt.infer import _choose_tile
+
+    assert _choose_tile(512, 512, 0) == 0          # modest image → whole
+    assert _choose_tile(3000, 4000, 0) == 512      # huge → tiled
+    assert _choose_tile(512, 512, -1) == 0         # explicit whole
+    assert _choose_tile(512, 512, 256) == 256      # explicit tile
+
+
+def test_bundled_val_requires_hr_and_lr(tmp_path):
+    from hnt.config_gen import _bundled_val
+
+    assert _bundled_val(tmp_path, 2) is None
+    base = tmp_path / "datasets/val/hnt_val"
+    (base / "hr").mkdir(parents=True)
+    (base / "lr_x2").mkdir()
+    (base / "hr" / "a.png").write_bytes(b"x")
+    assert _bundled_val(tmp_path, 2) == (base / "hr", base / "lr_x2")
+    assert _bundled_val(tmp_path, 4) is None
+
+
 def test_nerve_arch_inferred_from_checkpoint(tmp_path):
     torch = pytest.importorskip("torch")
     pytest.importorskip("safetensors.torch")

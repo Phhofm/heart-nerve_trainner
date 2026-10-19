@@ -76,7 +76,10 @@ class InferenceWindow(QMainWindow):
         self.arch = QComboBox(); self.arch.addItems(["NERVE", "HEART"])
         self.scale = QComboBox(); self.scale.addItems([str(s) for s in SCALES]); self.scale.setCurrentText("2")
         self.device = QComboBox(); self.device.addItems(["Auto", "CUDA", "CPU"])
-        self.tile = QComboBox(); self.tile.addItems(["0 (whole image)", "256", "512"])
+        self.tile = QComboBox()
+        for label, value in (("Auto (recommended)", 0), ("256", 256), ("512", 512),
+                             ("Whole image (may OOM)", -1)):
+            self.tile.addItem(label, value)
 
         self.inputs = QListWidget()
         irow = QHBoxLayout()
@@ -149,7 +152,7 @@ class InferenceWindow(QMainWindow):
         if not model or not out or not inputs:
             QMessageBox.warning(self, "Inference", "Pick a model, an output folder, and at least one input.")
             return
-        tile = int(self.tile.currentText().split()[0])
+        tile = int(self.tile.currentData())
         device = self._resolve_device()
         self.log.appendPlainText(
             f"Running {self.arch.currentText()} x{self.scale.currentText()} on "

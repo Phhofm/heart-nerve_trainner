@@ -38,7 +38,7 @@ def _cmd_config(a: argparse.Namespace) -> int:
         hr_dir=a.hr, lr_dir=a.lr or "", val_hr_dir=a.val_hr or "", val_lr_dir=a.val_lr or "",
         degradation=a.degradation, batch=a.batch or ap.batch, lq_size=a.lq or ap.lq_size,
         iters=a.iters, name=a.name, val_perceptual_metrics=a.perceptual_metrics,
-        amp_bf16=detect().supports_bf16,
+        amp_bf16=detect().supports_bf16, val_tile_size=a.val_tile,
     )
     cfg = build_config(req, repo)
     out = write_config(cfg, Path(a.out))
@@ -94,6 +94,8 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--iters", type=int, default=100_000)
     c.add_argument("--perceptual-metrics", action="store_true",
                    help="also validate with DISTS/LPIPS (slower)")
+    c.add_argument("--val-tile", type=int, default=256,
+                   help="tile size for validation (0 = whole image)")
     c.add_argument("--name", default="hnt_run")
     c.add_argument("--out", required=True)
     c.set_defaults(fn=_cmd_config)
@@ -107,7 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
     inf.add_argument("--input", nargs="+", required=True, help="image files and/or folders")
     inf.add_argument("--out", required=True)
     inf.add_argument("--device", default="cuda")
-    inf.add_argument("--tile", type=int, default=0, help="0 = whole image; else tile size (e.g. 256)")
+    inf.add_argument("--tile", type=int, default=0, help="0 = auto by image size; -1 = whole image; else tile px")
     inf.set_defaults(fn=_cmd_infer)
 
     h = sub.add_parser("help-text")

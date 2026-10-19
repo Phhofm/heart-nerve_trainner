@@ -235,10 +235,13 @@ class MainWindow(QMainWindow):
         self.patch = QSpinBox(); self.patch.setRange(32, 512); self.patch.setSingleStep(32); self.patch.setValue(96)
         self.iters = QSpinBox(); self.iters.setRange(500, 2_000_000); self.iters.setSingleStep(500); self.iters.setValue(100_000)
         self.lr_edit = QDoubleSpinBox(); self.lr_edit.setDecimals(6); self.lr_edit.setRange(1e-6, 1e-2); self.lr_edit.setValue(2e-4)
+        self.val_tile = QSpinBox(); self.val_tile.setRange(0, 2048)
+        self.val_tile.setSingleStep(64); self.val_tile.setValue(256)
+        self.val_tile.setToolTip("Validation is tiled to avoid out-of-memory on large images. 0 = whole image.")
         self.compile_cb = QCheckBox("torch.compile (faster; auto-disabled if it fails)"); self.compile_cb.setChecked(True)
         self.ckpt_cb = QCheckBox("gradient checkpointing (less VRAM)"); self.ckpt_cb.setChecked(False)
         for w, lbl in ((self.batch, "Batch"), (self.patch, "Patch (LR)"), (self.iters, "Iterations"),
-                       (self.lr_edit, "Learning rate")):
+                       (self.lr_edit, "Learning rate"), (self.val_tile, "Validation tile")):
             advf.addRow(lbl, w)
         advf.addRow("", self.compile_cb); advf.addRow("", self.ckpt_cb)
         self._adv.setVisible(False)
@@ -421,6 +424,7 @@ class MainWindow(QMainWindow):
             use_compile=self.compile_cb.isChecked(), use_checkpoint=self.ckpt_cb.isChecked(),
             amp_bf16=self.hw.supports_bf16,
             val_perceptual_metrics=self.perceptual.isChecked(),
+            val_tile_size=self.val_tile.value(),
             name=f"{self.model.currentData()}_{self.scale.currentData()}x_run",
         )
 

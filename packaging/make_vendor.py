@@ -35,7 +35,6 @@ INCLUDE = [
 ]
 SKIP_DIRS = {"__pycache__", ".pytest_cache", ".git"}
 SKIP_FILES = {"line_distiller_weights.pth"}  # 41 MB dev-only loss weights
-SPLIT_COUNT = 10  # trimmed Urban100 validation subset (keeps the bundle small)
 
 
 def _ignore(_dir: str, names: list[str]) -> set[str]:
@@ -50,11 +49,26 @@ def _copy_tree(src: Path, dst: Path) -> None:
         shutil.copy2(src, dst)
 
 
-def _copy_subset(src: Path, dst: Path, count: int) -> None:
-    dst.mkdir(parents=True, exist_ok=True)
-    files = sorted(p for p in src.iterdir() if p.is_file())[:count]
-    for f in files:
-        shutil.copy2(f, dst / f.name)
+def _copy_lucid_bundle(trainer: Path, val_count: int = 10, demo_count: int = 8) -> None:
+    """Ship CC0 Lucid tiles: a small validation set (HR + LR) and a demo train set."""
+    src = trainer / "datasets/train/lucid_hc512"
+    if not (src / "hr").is_dir():
+        print("  warning: Lucid tiles not found; bundled validation data skipped")
+        return
+    names = sorted(p.name for p in (src / "hr").iterdir() if p.is_file())[:val_count]
+    for sub in ("hr", "lr_x2", "lr_x4"):
+        dst = TRAINER / "datasets/val/hnt_val" / sub
+        dst.mkdir(parents=True, exist_ok=True)
+        for n in names:
+            f = src / sub / n
+            if f.is_file():
+                shutil.copy2(f, dst / n)
+
+    demo = TRAINER / "datasets/train/demo/hr"
+    demo.mkdir(parents=True, exist_ok=True)
+    for n in names[:demo_count]:
+        shutil.copy2(src / "hr" / n, demo / n)
+    print(f"  bundled CC0 Lucid data: {len(names)} val tiles + {demo_count} demo tiles")
 
 
 def _revision(trainer: Path) -> str:
@@ -87,15 +101,8 @@ def build(trainer: Path) -> None:
         else:
             print(f"  skip (missing): {rel}")
 
-    # Small out-of-the-box validation + self-test data.
-    # The demo set has hr/lr subfolders, so copy it whole (4 MB).
-    _copy_tree(trainer / "datasets/train/dataset1", TRAINER / "datasets/train/dataset1")
-    _copy_subset(trainer / "datasets/val/urban100/hr", TRAINER / "datasets/val/urban100/hr", SPLIT_COUNT)
-    _copy_subset(
-        trainer / "datasets/val/urban100_otf_x2",
-        TRAINER / "datasets/val/urban100_otf_x2",
-        SPLIT_COUNT,
-    )
+    # Small out-of-the-box validation + self-test data (CC0 Lucid tiles).
+    _copy_lucid_bundle(trainer)
 
     rev = _revision(trainer)
     (TRAINER / "REVISION").write_text(rev + "\n")

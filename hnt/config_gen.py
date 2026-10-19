@@ -85,6 +85,7 @@ class TrainRequest:
     amp_bf16: bool | None = None
     compile_mode: str | None = None
     val_perceptual_metrics: bool = False  # DISTS/LPIPS — accurate but much slower
+    val_tile_size: int = 256  # 0 = whole image (can OOM on huge val images)
     name: str = "hnt_run"
     extra: dict[str, Any] = field(default_factory=dict)
 
@@ -133,7 +134,7 @@ def _synth_paired(req: TrainRequest) -> dict[str, Any]:
             "losses": [{"type": "charbonnierloss", "loss_weight": 1.0}],
         },
         "val": {"val_enabled": True, "val_freq": max(2500, req.iters // 40), "save_img": False,
-                "tile_size": 0, "tile_overlap": 8, "metrics_enabled": True,
+                "tile_size": req.val_tile_size, "tile_overlap": 16, "metrics_enabled": True,
                 "metrics": {"psnr": {"type": "calculate_psnr", "crop_border": req.scale * 2,
                                      "test_y_channel": True},
                             "ssim": {"type": "calculate_ssim", "crop_border": req.scale * 2,
@@ -197,6 +198,10 @@ def _patch(cfg: dict[str, Any], req: TrainRequest) -> dict[str, Any]:
         tr.setdefault("optim_g", {})["lr"] = req.lr
 
     cfg.setdefault("val", {})["val_freq"] = max(2500, req.iters // 40)
+    # Tile validation by default: full-resolution val images are a classic OOM.
+    val = cfg["val"]
+    val["tile_size"] = req.val_tile_size
+    val["tile_overlap"] = 16
     # PSNR/SSIM are always on. DISTS/LPIPS are opt-in: the trainer rebuilds the
     # perceptual net for every validation image, so they are much slower.
     vmetrics = cfg["val"].setdefault("metrics", {})
@@ -207,6 +212,15 @@ def _patch(cfg: dict[str, Any], req: TrainRequest) -> dict[str, Any]:
     return cfg
 
 
+def _bundled_val(repo: Path, scale: int) -> tuple[Path, Path] | None:
+    """CC0 Lucid validation tiles shipped with the app (used when the user gives none)."""
+    base = repo / "datasets/val/hnt_val"
+    hr, lr = base / "hr", base / f"lr_x{scale}"
+    if hr.is_dir() and lr.is_dir() and any(hr.iterdir()):
+        return hr, lr
+    return None
+
+
 def build_config(req: TrainRequest, repo: Path | None = None) -> dict[str, Any]:
     repo = repo or find_repo()
     tmpl = _find_template(repo, req.model, req.profile, req.data_mode)
@@ -214,15 +228,26 @@ def build_config(req: TrainRequest, repo: Path | None = None) -> dict[str, Any]:
         cfg = _patch(yaml.safe_load(tmpl.read_text()), req)
         if req.profile == "MODERN_PERCEPTUAL":
             _apply_modern(cfg, req)
-        return cfg
-    if req.data_mode == "PAIRED":
+    elif req.data_mode == "PAIRED":
         cfg = _synth_paired(req)
         cfg.update(req.extra)
-        return cfg
-    raise ConfigError(
-        f"No OTF template for {req.model}/{req.profile}; cannot generate an on-the-fly "
-        "degradation config (use paired LR instead)."
-    )
+    else:
+        raise ConfigError(
+            f"No OTF template for {req.model}/{req.profile}; cannot generate an on-the-fly "
+            "degradation config (use paired LR instead)."
+        )
+
+    # No user validation folder → validate on the bundled CC0 tiles (never a full-res
+    # external benchmark set, and tiled by default).
+    if not req.val_hr_dir:
+        bundled = _bundled_val(repo, req.scale)
+        if bundled is not None:
+            hr, lr = bundled
+            v = cfg.setdefault("datasets", {}).setdefault("val", {})
+            v["dataroot_gt"] = [str(hr)]
+            v["dataroot_lq"] = [str(lr)]
+            v["filename_tmpl"] = "{}"
+    return cfg
 
 
 def write_config(cfg: dict[str, Any], path: Path) -> Path:

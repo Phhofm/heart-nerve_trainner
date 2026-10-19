@@ -32,9 +32,10 @@ _SMOKE_ITERS = 100
 
 
 def _demo_dir(repo: Path) -> Path | None:
-    hr = repo / "datasets/train/dataset1"
-    if hr.is_dir() and any(hr.iterdir()):
-        return hr
+    for rel in ("datasets/train/demo/hr", "datasets/train/dataset1"):
+        hr = repo / rel
+        if hr.is_dir() and any(hr.iterdir()):
+            return hr
     return None
 
 
