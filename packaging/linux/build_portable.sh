@@ -26,7 +26,17 @@ DIST="dist/HeartNerveTrainer"
 rm -rf "$DIST/hnt" "$DIST/trainer" "$DIST/uv"
 cp -r hnt "$DIST/hnt"
 cp -r packaging/vendor/trainer "$DIST/trainer"
-cp packaging/vendor/uv "$DIST/uv"
+
+# `packaging/vendor/uv` is gitignored; CI installs uv and puts it on PATH.
+UV_BIN="${UV_BIN:-packaging/vendor/uv}"
+if [ ! -f "$UV_BIN" ]; then
+  UV_BIN="$(command -v uv || true)"
+fi
+if [ -z "$UV_BIN" ] || [ ! -f "$UV_BIN" ]; then
+  echo "error: uv binary not found (set UV_BIN or install uv)" >&2
+  exit 1
+fi
+cp "$UV_BIN" "$DIST/uv"
 chmod +x "$DIST/uv"
 
 tar -czf "dist/HeartNerveTrainer-linux-x86_64.tar.gz" -C dist HeartNerveTrainer
