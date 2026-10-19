@@ -16,6 +16,9 @@ terminal, no code. Pick a model + scale, point at a folder of HR images, hit
 
 ## For users
 1. Download the installer for your OS from **Releases**.
+   - **Linux** is a portable `.tar.gz`: unpack it and run `HeartNerveTrainer/HeartNerveTrainer`.
+     On a fresh Debian/Ubuntu install, Qt needs the xcb libraries:
+     `sudo apt install libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0`
 2. Double-click, follow first-time setup (it installs everything into its own folder).
 3. Pick **NERVE** (recommended) → **2×** → **Fidelity** → your HR folder → **Train**.
 4. Your model appears in the output folder as `.safetensors`, `.onnx` (fp32 + fp16)
