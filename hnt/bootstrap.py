@@ -71,13 +71,20 @@ def is_setup_complete(paths: Paths) -> bool:
 
 
 def python_exe(paths: Paths, use_current_env: bool = False) -> str:
-    """The interpreter to run training/export with."""
+    """The interpreter to run training/export with.
+
+    Returns "" when the isolated venv is not set up yet. It must NEVER return the
+    frozen app binary as a fallback: launching `app -c "import torch"` would start
+    another copy of the GUI (a launch loop on first run).
+    """
     if use_current_env:
         return sys.executable
     for cand in ("bin/python", "Scripts/python.exe"):
         p = paths.venv / cand
         if p.is_file():
             return str(p)
+    if is_frozen():
+        return ""
     return sys.executable
 
 

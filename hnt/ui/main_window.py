@@ -468,6 +468,10 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Review settings", msg)
 
     def _train(self, _retry: bool = False) -> None:
+        if not self.py:
+            self.status.setText("set up the environment first")
+            self.guide.setText("First-time setup is needed before training.")
+            return self._setup_env()
         if not _retry:
             self._oom_retries = 0
             self._compile_retries = 0
@@ -676,7 +680,7 @@ class MainWindow(QMainWindow):
 
         if is_setup_complete(self.paths):
             return
-        if Path(self.py) == Path(sys.executable) and self._has_torch(self.py):
+        if self.py and Path(self.py) == Path(sys.executable) and self._has_torch(self.py):
             return  # dev checkout using an already-working interpreter
         if QMessageBox.question(
             self, "First-time setup",
@@ -688,6 +692,8 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _has_torch(py: str) -> bool:
+        if not py:
+            return False  # environment not set up yet — never launch the app binary
         try:
             return subprocess.run(
                 [py, "-c", "import torch"], capture_output=True, timeout=20
@@ -739,8 +745,24 @@ class MainWindow(QMainWindow):
 
 
 def run() -> int:
+    from PySide6.QtCore import QLockFile
+
+    paths = get_paths()
+    lock = None
+    try:
+        paths.data.mkdir(parents=True, exist_ok=True)
+        lock = QLockFile(str(paths.data / "app.lock"))
+        lock.setStaleLockTime(30_000)
+        if not lock.tryLock(300):
+            return 0  # another instance is already running — don't stack windows
+    except OSError:
+        lock = None  # unwritable data dir: still allow the app to start
+
     app = QApplication(sys.argv)
     app.setStyleSheet(theme.QSS)
     w = MainWindow()
     w.show()
-    return app.exec()
+    rc = app.exec()
+    if lock is not None:
+        lock.unlock()
+    return rc

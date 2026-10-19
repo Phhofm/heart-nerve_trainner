@@ -157,6 +157,12 @@ class InferenceWindow(QMainWindow):
             return
         tile = int(self.tile.currentData())
         device = self._resolve_device()
+        if not runtime_python(get_paths()):
+            self.log.appendPlainText(
+                "The training environment is not set up yet — use 'Set up / repair' "
+                "in the main window, then try again."
+            )
+            return
         self.log.appendPlainText(
             f"Running {self.arch.currentText()} x{self.scale.currentText()} on "
             f"{len(inputs)} input(s) [{device}]…"

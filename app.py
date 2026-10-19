@@ -5,9 +5,11 @@
 (In a packaged build this is the target of the Start-Menu shortcut / AppImage.)
 """
 
+import multiprocessing
 import sys
 
 from hnt.ui import run
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     sys.exit(run())

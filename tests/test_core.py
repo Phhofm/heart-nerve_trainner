@@ -110,6 +110,26 @@ def test_bundled_val_requires_hr_and_lr(tmp_path):
     assert _bundled_val(tmp_path, 4) is None
 
 
+def test_python_exe_never_returns_frozen_app_binary(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from hnt import bootstrap
+
+    fake = SimpleNamespace(venv=tmp_path / "venv")
+    monkeypatch.setattr(bootstrap, "is_frozen", lambda: True)
+    # Clean install: no venv yet. Must be "" (never the app binary, which would
+    # relaunch the GUI and cause a launch loop).
+    assert bootstrap.python_exe(fake) == ""
+
+    py = fake.venv / "bin" / "python"
+    py.parent.mkdir(parents=True)
+    py.write_text("")
+    assert bootstrap.python_exe(fake) == str(py)
+
+    monkeypatch.setattr(bootstrap, "is_frozen", lambda: False)
+    assert bootstrap.python_exe(SimpleNamespace(venv=tmp_path / "missing")) == bootstrap.sys.executable
+
+
 def test_nerve_arch_inferred_from_checkpoint(tmp_path):
     torch = pytest.importorskip("torch")
     pytest.importorskip("safetensors.torch")

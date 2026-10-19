@@ -1,7 +1,7 @@
 {
-  "version": "0.1.0",
+  "version": "0.1.1",
   "deps_rev": "2026-10-16",
-  "notes": "First build: NERVE/HEART training GUI with live PSNR/SSIM/DISTS/LPIPS graphs and one-click Lucid (CC0) dataset download.",
+  "notes": "Fix: first launch could open many windows (launch loop) on a clean install. Adds a single-instance guard.",
   "assets": {
     "windows": "https://github.com/Phhofm/heart-nerve_trainner/releases/latest/download/HeartNerveTrainer-Setup.exe",
     "linux": "https://github.com/Phhofm/heart-nerve_trainner/releases/latest/download/HeartNerveTrainer.AppImage"
