@@ -10,7 +10,7 @@
   var REPO = "https://github.com/Phhofm/heart-nerve_trainner";
   var assets = {
     windows: REPO + "/releases/latest/download/HeartNerveTrainer-Setup.exe",
-    linux: REPO + "/releases/latest/download/HeartNerveTrainer.AppImage",
+    linux: REPO + "/releases/latest/download/HeartNerveTrainer-linux-x86_64.tar.gz",
   };
 
   function detectOS() {

@@ -32,8 +32,14 @@ jobs:
           Copy-Item -Recurse -Force hnt dist/HeartNerveTrainer/hnt
           Copy-Item -Recurse -Force packaging/vendor/trainer dist/HeartNerveTrainer/trainer
           Copy-Item -Force (Get-Command uv).Source dist/HeartNerveTrainer/uv.exe
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
       - name: Build installer (Inno Setup)
-        run: iscc packaging/windows/installer.iss
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { $iscc = "iscc" }
+          & $iscc packaging/windows/installer.iss
       - uses: actions/upload-artifact@v4
         with:
           name: installer-windows
@@ -55,6 +61,7 @@ jobs:
         env: { PYTHON: python }
         run: bash packaging/linux/build_portable.sh
       - name: Build AppImage
+        continue-on-error: true
         env:
           PYTHON: python
           LINUXDEPLOY: ./linuxdeploy
