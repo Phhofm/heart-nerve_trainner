@@ -9,6 +9,8 @@
 #define AppName "HEART / NERVE Trainer"
 #define AppVersion "0.1.0"
 #define AppExe "HeartNerveTrainer.exe"
+; Paths in Inno are relative to this script; the repo root is two levels up.
+#define RepoDist AddBackslash(SourcePath) + "..\..\dist"
 
 [Setup]
 AppName={#AppName}
@@ -17,6 +19,7 @@ DefaultDirName={localappdata}\HeartNerveTrainer
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
+OutputDir={#RepoDist}
 OutputBaseFilename=HeartNerveTrainer-Setup
 ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
@@ -24,7 +27,7 @@ WizardStyle=modern
 [Files]
 ; The staged PyInstaller folder already contains the app, `trainer/`, `uv.exe`
 ; and the `hnt` sources — keep them together so find_repo()/uv_path() resolve.
-Source: "dist\HeartNerveTrainer\*"; DestDir: "{app}\app"; Flags: recursesubdirs
+Source: "{#RepoDist}\HeartNerveTrainer\*"; DestDir: "{app}\app"; Flags: recursesubdirs
 
 [Icons]
 Name: "{userprograms}\{#AppName}"; Filename: "{app}\app\{#AppExe}"
