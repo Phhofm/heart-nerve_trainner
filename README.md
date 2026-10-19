@@ -1,110 +1,139 @@
+<div align="center">
+
 # HEART / NERVE Trainer
 
-A **beginner-first desktop app** for training SISR models (HEART / NERVE) — no
-terminal, no code. Pick a model + scale, point at a folder of HR images, hit
-**Train**, get deployable `.safetensors` + `.onnx` (+ `.ncnn` for NERVE).
+### Train your own image upscaler — no code.
 
-> Thin shell over [traiNNer-redux](https://github.com/the-database/traiNNer-redux):
-> it detects your hardware, bootstraps an isolated Python env, generates a training
-> config, runs training, streams progress, and exports the model.
+Pick a model, point at a folder of photos, press **Train**.
+When it finishes, you get a model you can use anywhere.
 
-- 🌐 **Website:** https://phhofm.github.io/heart-nerve_trainner/ (source in [`docs/`](docs/))
-- 📦 **Downloads:** [Releases](https://github.com/Phhofm/heart-nerve_trainner/releases)
-- 🤗 **Models & demos:** [HEART demo](https://huggingface.co/spaces/Phips/heart) ·
-  [NERVE demo](https://huggingface.co/spaces/Phips/nerve) ·
-  [NERVE / HEART converter](https://huggingface.co/spaces/Phips/nerve-convert)
+[![Download](https://img.shields.io/badge/Download-Latest%20Release-7c9cff?style=for-the-badge)](https://github.com/Phhofm/heart-nerve_trainner/releases/latest)
 
-## For users
-1. Download the installer for your OS from **Releases**.
-   - **Linux** is a portable `.tar.gz`: unpack it and run `HeartNerveTrainer/HeartNerveTrainer`.
-     On a fresh Debian/Ubuntu install, Qt needs the xcb libraries:
-     `sudo apt install libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0`
-2. Double-click, follow first-time setup (it installs everything into its own folder).
-3. Pick **NERVE** (recommended) → **2×** → **Fidelity** → your HR folder → **Train**.
-4. Your model appears in the output folder as `.safetensors`, `.onnx` (fp32 + fp16)
-   and, for NERVE, `.ncnn`.
+[![CI](https://github.com/Phhofm/heart-nerve_trainner/actions/workflows/ci.yml/badge.svg)](https://github.com/Phhofm/heart-nerve_trainner/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Phhofm/heart-nerve_trainner)](https://github.com/Phhofm/heart-nerve_trainner/releases)
+[![License: MIT](https://img.shields.io/github/license/Phhofm/heart-nerve_trainner)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-7c9cff)](#download)
 
-No GPU? The app warns that CPU training is very slow (possible for NERVE).
+<img src="docs/assets/app.png" width="880" alt="HEART / NERVE Trainer main window">
 
-## Features
-- **Guided defaults** — NERVE + 2× + Fidelity are pre-selected and outlined in green;
-  everything fiddly (degradation, val sets, batch/patch/LR) stays hidden until **Expert mode**.
-- **Self-healing runs** — on CUDA out-of-memory it retries with a smaller patch/batch;
-  if `torch.compile` fails it retries without it.
-- **Right precision automatically** — bf16 on Ampere+, fp16 on older cards.
-- **Live validation graphs** — PSNR / SSIM (fidelity) and DISTS / LPIPS (perceptual).
-- **Exports by itself** — when training finishes it writes `.safetensors`, `.onnx`
-  (fp32 + fp16) and, for NERVE, `.ncnn` into your output folder.
-- **One-click Lucid download** — 100k CC0 training tiles, no account needed.
-- **Auto-everything** — hardware detection, safe auto-params, self-test, repair, export.
-- **In-app updates** — checks `latest.json`, then asks before downloading a new build.
-- **AI-assisted help** — on failure it copies a friendly diagnostic report to your clipboard.
+</div>
+
+---
+
+## What is this?
+
+A friendly desktop app for **training super-resolution models**. In plain words:
+it teaches an AI to make images **bigger and sharper** using your own photos.
+
+- **No terminal, no Python, no config files.**
+- **Sensible defaults** — the recommended choices are pre-selected and outlined in green.
+- **Live feedback** — progress bar, live PSNR/SSIM graphs, and a log you can read.
+- **It exports for you** — `.safetensors`, ONNX (fp32 + fp16), and ncnn for NERVE.
+
+> Built on the open-source [traiNNer-redux](https://github.com/the-database/traiNNer-redux)
+> engine. The app sets everything up in its own folder; your system Python is never touched.
+
+## Download
+
+| Your system | Get |
+|---|---|
+| **Windows** | [HeartNerveTrainer-Setup.exe](https://github.com/Phhofm/heart-nerve_trainner/releases/latest/download/HeartNerveTrainer-Setup.exe) |
+| **Linux** | [HeartNerveTrainer-linux-x86_64.tar.gz](https://github.com/Phhofm/heart-nerve_trainner/releases/latest/download/HeartNerveTrainer-linux-x86_64.tar.gz) |
+
+**Linux** is a portable bundle — no install:
+
+```bash
+tar xzf HeartNerveTrainer-linux-x86_64.tar.gz
+./HeartNerveTrainer/HeartNerveTrainer
+```
+
+If it complains about the Qt `xcb` plugin on a fresh Debian/Ubuntu:
+
+```bash
+sudo apt install libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 \
+  libxcb-image0 libxcb-keysyms1 libxcb-render-util0
+```
+
+## Train your first model
+
+1. **First run** → click **Set up**. It downloads PyTorch into the app's own folder
+   (one time, ~2–3 GB). Your system is not modified.
+2. **Choose your images** → point **HR folder** at a folder of good-quality images,
+   or click **Download Lucid dataset** for free CC0 training data.
+3. **Press Train** → keep the green defaults (**NERVE · 2× · Fidelity**).
+   Watch the progress bar and the graphs. When it finishes, the model is exported
+   automatically to the **Output folder**.
+
+That's it. The next-step hint in the app always tells you what to do.
+
+## Is my GPU supported?
+
+- **NVIDIA** — recommended and fully supported (bf16 on RTX 30/40, fp16 on older cards).
+- **CPU** — works, but training is very slow.
+- **AMD / Intel Arc** — not supported yet (the training engine assumes CUDA).
+
+No GPU is needed to *browse*, but training a useful model wants an NVIDIA card.
+
+## What you get
+
+| File | Use |
+|---|---|
+| `.safetensors` | Weights for PyTorch, chaiNNer, ComfyUI |
+| `.onnx` (fp32/fp16) | Portable inference, TensorRT, ONNX Runtime |
+| `.ncnn` (NERVE) | Lightweight/edge inference |
+
+Profiles: **Fidelity** (clean, default), **Perceptual** (sharper textures), **Real-world**
+(robust to blur/noise/JPEG). Advanced knobs live behind **Expert mode**.
+
+## Troubleshooting
+
+- **Out of memory** → the app automatically retries with a smaller patch/batch.
+- **Training is slow** → check the GPU meter; close other GPU apps.
+- **Something failed** → press **Get help / report**. It copies a friendly, plain-language
+  report to your clipboard that you can paste into an AI assistant or a forum.
+  Nothing is sent anywhere automatically.
+- **App won't start on Linux** → install the xcb packages listed above.
 
 ## For developers
+
+<details>
+<summary><b>Build, test, and package</b></summary>
+
 ```bash
 python -m venv .venv && . .venv/bin/activate
-pip install -e ".[dev,train]"    # train extra pulls torch/onnx/pnnx/ncnn
+pip install -e ".[dev,train]"
 
-pytest -q                                    # tests (GUI tests need PySide6)
-python app.py                                # launch the GUI
-hnt detect                                   # print detected hardware
-hnt config --model NERVE --scale 2 --profile FIDELITY \
-    --data-mode OTF --hr /path/hr --out /tmp/run.yml
-hnt selftest                                 # end-to-end smoke (needs GPU/torch)
+pytest -q          # 39 tests (parser, configs, updater, GUI smoke)
+python app.py      # launch the GUI
+hnt detect         # print detected hardware
+hnt selftest       # end-to-end: train → validate → save → export
 ```
 
-### Layout
-```
-hnt/
-  paths.py         locate the trainer repo + app data dirs
-  hardware.py      GPU/VRAM/CPU/RAM detection
-  presets.py       profiles, arch defaults, VRAM→auto-params
-  manifest.py      (model, scale) → pretrain
-  degradation.py   OTF presets (bicubic/JPEG/Real-ESRGAN/…)
-  config_gen.py    choices → valid traiNNer .yml  (template + patch)
-  train_runner.py  run train.py, parse progress + metrics, sample telemetry
-  exporter.py      safetensors + ONNX fp32/fp16 (+ ncnn)
-  bootstrap.py     uv-based isolated venv + pinned deps
-  selftest.py      NERVE 2x fidelity smoke → train/val/save/export → cleanup
-  downloader.py    Lucid (CC0) dataset + pretrain downloads (login optional)
-  updater.py       check latest.json → download + launch installer (keeps data/venv)
-  cleanup.py       delete experiment dirs, never the final output folder
-  infer.py         run a trained/downloaded HEART|NERVE model on images or folders
-  diagnostics.py   "ask your AI" help text (copy-to-clipboard)
-  ui/              PySide6 app (theme, main window, live charts, inference window)
-tests/             pytest suite
-docs/              the GitHub Pages website (static, no build step)
-packaging/         Inno Setup (Windows) + AppImage (Linux) + vendoring notes
-latest.json        version manifest the in-app updater reads
-```
+- **CI** runs the full test suite on every push and pull request
+  (`.github/workflows/ci.yml`).
+- **Releases** are built by `.github/workflows/build-release.yml` on a `v*` tag:
+  portable Linux bundle + AppImage + Windows installer.
+- The frozen app is a thin UI; training/export/inference run in the isolated venv.
 
-### Design rules
-- **Beginner-first:** Fidelity + NERVE + sane auto-params by default; GAN is opt-in.
-- **Never touch the system Python:** everything lives in the app's venv.
-- **Auto-everything:** install, configure, test, repair, export.
-- **AI-help, not AI-integration:** on failure we only *generate a text prompt* to copy.
+Packaging:
 
-## Status / roadmap
-- ✅ Training GUI (flow, review, dashboard, live metric charts, inference window).
-- ✅ Lucid (CC0) one-click download; pretrain manifest + resolver.
-- ✅ Exports `.safetensors` + ONNX fp32/fp16 + `.ncnn` (NERVE, parity-checked via pnnx).
-- ✅ Inference verified end-to-end (2× on a real checkpoint); runs in the isolated venv.
-- ✅ Auto-update path tested against a local `latest.json`.
-- ⏳ Bundle trainer + `uv` (`packaging/make_vendor.py`), then publish installers.
-- ⏳ Publish `latest.json` + a first Release (auto-update needs the repo public).
-- ⏳ 1× pretrains (HEART/NERVE) before 1× is offered in the UI.
-- ⏳ Validate the experimental Modern-perceptual profile with short runs.
-
-### Packaging
 ```bash
 python packaging/make_vendor.py --trainer /path/to/traiNNer-redux
-bash packaging/linux/build_portable.sh     # portable Linux bundle in dist/
+bash packaging/linux/build_portable.sh
 ```
-The frozen app is a thin UI; training/export/inference always run with the isolated
-venv Python. CI (`.github/workflows/build-release.yml`) builds the native AppImage and
-Windows installer.
+
+Layout: `hnt/` app (paths, hardware, presets, config, runner, exporter, UI),
+`tests/` pytest suite, `docs/` website, `packaging/` installers, `packaging/vendor/`
+pinned trainer.
+
+</details>
 
 ## Credits
+
 Made by **Philip Hofmann** — [GitHub](https://github.com/Phhofm) ·
-[Hugging Face](https://huggingface.co/Phips). Built on
-[traiNNer-redux](https://github.com/the-database/traiNNer-redux). MIT licensed.
+[Hugging Face](https://huggingface.co/Phips).
+Demos: [HEART](https://huggingface.co/spaces/Phips/heart) ·
+[NERVE](https://huggingface.co/spaces/Phips/nerve) ·
+[Converter](https://huggingface.co/spaces/Phips/nerve-convert).
+
+MIT licensed. Built on [traiNNer-redux](https://github.com/the-database/traiNNer-redux).

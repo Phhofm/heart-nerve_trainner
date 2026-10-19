@@ -12,7 +12,8 @@ from pathlib import Path
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
     QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLineEdit,
-    QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget,
+    QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar,
+    QPushButton, QVBoxLayout, QWidget,
 )
 
 from ..bootstrap import app_source_dir, runtime_python
@@ -106,6 +107,8 @@ class InferenceWindow(QMainWindow):
 
         self.log = QPlainTextEdit(); self.log.setReadOnly(True)
         root.addWidget(self.log, 1)
+        self.prog = QProgressBar(); self.prog.setRange(0, 1); self.prog.setValue(0)
+        root.addWidget(self.prog)
 
     # ---- helpers ----
     def _file_row(self, ph: str) -> QWidget:
@@ -159,6 +162,7 @@ class InferenceWindow(QMainWindow):
             f"{len(inputs)} input(s) [{device}]…"
         )
         self.run_btn.setEnabled(False)
+        self.prog.setRange(0, 0)  # busy
         self._worker = InferWorker(
             model, inputs, out, self.arch.currentText(),
             int(self.scale.currentText()), device, tile,
@@ -169,4 +173,6 @@ class InferenceWindow(QMainWindow):
 
     def _on_done(self, wrote: int, errors: int) -> None:
         self.run_btn.setEnabled(True)
+        self.prog.setRange(0, 1)
+        self.prog.setValue(1 if wrote else 0)
         self.log.appendPlainText(f"Done — {wrote} file(s), {errors} error(s).")

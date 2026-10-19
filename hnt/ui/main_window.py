@@ -216,6 +216,8 @@ class MainWindow(QMainWindow):
         hint = QLabel("Fields outlined in green are the recommended choices for most users.")
         hint.setObjectName("muted"); hint.setWordWrap(True)
         form.addRow(hint)
+        self.guide = QLabel(); self.guide.setObjectName("subtitle"); self.guide.setWordWrap(True)
+        form.addRow(self.guide)
         form.addRow("Image source", self.data_mode)
         form.addRow("HR folder (your images)", self.hr)
         form.addRow("", self.lucid_btn)
@@ -256,6 +258,8 @@ class MainWindow(QMainWindow):
         self.e_onnx16 = QCheckBox("ONNX fp16"); self.e_onnx16.setChecked(True)
         self.e_ncnn = QCheckBox("ncnn (NERVE)")
         ef.addRow(self.e_onnx32); ef.addRow(self.e_onnx16); ef.addRow(self.e_ncnn)
+        openbtn = QPushButton("Open output folder"); openbtn.clicked.connect(self._open_output)
+        ef.addRow(openbtn)
         form.addRow(exp_opts)
 
         btnrow = QHBoxLayout()
@@ -316,6 +320,9 @@ class MainWindow(QMainWindow):
         footer.setOpenExternalLinks(True)
         root.addWidget(footer)
 
+        self.hr._edit.textChanged.connect(self._refresh_guide)  # type: ignore[attr-defined]
+        self._refresh_guide()
+
     def _hw_chips(self) -> list[str]:
         hw = self.hw
         gpu = hw.gpus[0] if hw.gpus else None
@@ -356,6 +363,23 @@ class MainWindow(QMainWindow):
             p, _ = QFileDialog.getOpenFileName(self, "Select file")
         if p:
             edit.setText(p)
+
+    def _refresh_guide(self) -> None:
+        """One clear next step, always visible."""
+        if self.worker is not None and self.worker.isRunning():
+            self.guide.setText("Training — watch progress and the graphs on the right.")
+        elif not self.hr._edit.text().strip():  # type: ignore[attr-defined]
+            self.guide.setText("Next: choose a folder of high-res images (or download Lucid).")
+        else:
+            self.guide.setText("Ready — press Train. NERVE · 2× · Fidelity are already set.")
+
+    def _open_output(self) -> None:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        p = Path(self.out._edit.text() or (self.paths.data / "outputs"))  # type: ignore[attr-defined]
+        p.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))
 
     # ---------- behaviour ----------
     def _on_choice_changed(self, *_: object) -> None:
@@ -457,6 +481,9 @@ class MainWindow(QMainWindow):
         except Exception as e:  # noqa: BLE001
             return self._help("config generation", str(e))
         self.prog.setRange(0, req.iters)
+        self.prog.setValue(0)
+        self.status.setText("training…")
+        self.guide.setText("Training — watch progress and the graphs on the right.")
         self.chart.clear()
         self._last_req = req
         self._stopped = False
@@ -479,6 +506,8 @@ class MainWindow(QMainWindow):
     def _download_lucid(self) -> None:
         dest = lucid_home(self.paths.data)
         self.lucid_btn.setEnabled(False)
+        self.prog.setRange(0, 0)  # busy
+        self.guide.setText("Downloading Lucid (large, resumable)…")
         self.log.appendPlainText(f"Lucid → {dest}")
         self._dl = DownloadWorker(dest)
         self._dl.line.connect(self.log.appendPlainText)
@@ -487,16 +516,21 @@ class MainWindow(QMainWindow):
 
     def _on_lucid_done(self, hr_dir: str, error: str) -> None:
         self.lucid_btn.setEnabled(True)
+        self.prog.setRange(0, 1)
+        self.prog.setValue(0)
         if error:
+            self.guide.setText("Lucid download failed — press Get help if it keeps failing.")
             self._help("lucid download", error)
             return
         self.hr._edit.setText(hr_dir)  # type: ignore[attr-defined]
         self.status.setText(f"Lucid ready → HR folder set to {hr_dir}")
+        self.guide.setText("Lucid is ready — press Train.")
 
     def _stop(self) -> None:
         self._stopped = True
         self.runner.stop()
         self.status.setText("stopping…")
+        self.guide.setText("Stopping…")
 
     def _on_done(self, ok: bool, info: str) -> None:
         self.timer.stop()
@@ -504,12 +538,15 @@ class MainWindow(QMainWindow):
         if not ok:
             if self._stopped:
                 self.status.setText("stopped")
+                self.guide.setText("Stopped — press Train to start again.")
                 return
             if self._maybe_auto_retry(info):
                 return
             self.status.setText("failed")
+            self.guide.setText("Something went wrong — press Get help for a copyable report.")
             return self._help("training", info)
         self.status.setText("training done — exporting model…")
+        self.guide.setText("Training finished — exporting your model…")
         self._export_model()
 
     def _maybe_auto_retry(self, info: str) -> bool:
@@ -530,6 +567,7 @@ class MainWindow(QMainWindow):
                 f"batch {self.batch.value()} …"
             )
             self.status.setText("out of memory — retrying with smaller settings")
+            self.guide.setText("Ran out of memory — retrying with smaller settings…")
             QTimer.singleShot(0, lambda: self._train(_retry=True))
             return True
         if (self.compile_cb.isChecked() and self._compile_retries < 1
@@ -538,6 +576,7 @@ class MainWindow(QMainWindow):
             self._compile_retries += 1
             self.log.appendPlainText("torch.compile failed — retrying without compile …")
             self.status.setText("compile failed — retrying without compile")
+            self.guide.setText("Compile failed — retrying without it…")
             QTimer.singleShot(0, lambda: self._train(_retry=True))
             return True
         return False
@@ -550,9 +589,15 @@ class MainWindow(QMainWindow):
         ckpts = sorted(run_models.glob("net_g_ema_*.safetensors")) or sorted(
             run_models.glob("net_g_*.safetensors"))
         if not ckpts:
+            self.prog.setRange(0, 1)
+            self.prog.setValue(1)
             self.status.setText("done — no checkpoint found to export")
+            self.guide.setText("Done — no checkpoint was written; check the log.")
             return
         out_dir = Path(self.out._edit.text()) if self.out._edit.text() else self.paths.data / "outputs"  # type: ignore[attr-defined]
+        self.prog.setRange(0, 0)  # busy while converting/exporting
+        self.status.setText(f"exporting model → {out_dir} …")
+        self.guide.setText("Exporting safetensors / ONNX / ncnn — this can take a minute…")
         self.log.appendPlainText(f"exporting → {out_dir}")
         self.export_worker = ExportWorker(
             self.paths.repo, ckpts[-1], out_dir, req.model, req.scale,
@@ -564,10 +609,14 @@ class MainWindow(QMainWindow):
         self.export_worker.start()
 
     def _on_export_done(self, out_dir: str, ok: bool) -> None:
+        self.prog.setRange(0, 1)
+        self.prog.setValue(1)
         if ok:
             self.status.setText(f"model saved → {out_dir}")
+            self.guide.setText("Done — open the output folder (left) to get your model.")
         else:
             self.status.setText("trained; export had problems (see log)")
+            self.guide.setText("Trained — export had problems; check the log.")
 
     def _tick(self) -> None:
         t = read_telemetry()
@@ -648,7 +697,9 @@ class MainWindow(QMainWindow):
 
     def _setup_env(self) -> None:
         self.train_btn.setEnabled(False)
+        self.prog.setRange(0, 0)  # busy
         self.status.setText("setting up environment (one time)…")
+        self.guide.setText("Setting up the training environment (one-time, ~2–3 GB)…")
         self.log.appendPlainText("Setting up the isolated training environment …")
         self._setup_worker = SetupWorker(self.paths)
         self._setup_worker.line.connect(self.log.appendPlainText)
@@ -657,11 +708,15 @@ class MainWindow(QMainWindow):
 
     def _on_setup_done(self, ok: bool, error: str) -> None:
         self.train_btn.setEnabled(True)
+        self.prog.setRange(0, 1)
+        self.prog.setValue(0)
         if ok:
             self.status.setText("setup complete — ready to train")
+            self.guide.setText("Setup complete — choose your images, then press Train.")
             self.log.appendPlainText("Setup complete.")
         else:
             self.status.setText("setup failed")
+            self.guide.setText("Setup failed — press Get help for a copyable report.")
             self._help("setup", error)
 
     def _open_inference(self) -> None:
