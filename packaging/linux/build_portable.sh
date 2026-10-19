@@ -12,14 +12,16 @@ if [ ! -d packaging/vendor/trainer ]; then
   "$PY" packaging/make_vendor.py --trainer "${TRAINER_REPO:-../}"
 fi
 
+# Building must not need a display (CI has none). This only affects the build process.
+export QT_QPA_PLATFORM=offscreen
+
 "$PY" -m PyInstaller --noconfirm --clean --onedir --windowed \
   --name HeartNerveTrainer \
-  --collect-submodules pyqtgraph \
+  --exclude-module pyqtgraph.examples --exclude-module pyqtgraph.opengl \
   --exclude-module torch --exclude-module torchvision \
   --exclude-module onnx --exclude-module onnxruntime \
   --exclude-module onnxconverter_common --exclude-module onnxsim \
   --exclude-module pnnx --exclude-module ncnn \
-  --exclude-module pyqtgraph.opengl \
   app.py
 
 DIST="dist/HeartNerveTrainer"
