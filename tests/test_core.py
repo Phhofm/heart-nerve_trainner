@@ -130,6 +130,21 @@ def test_python_exe_never_returns_frozen_app_binary(monkeypatch, tmp_path):
     assert bootstrap.python_exe(SimpleNamespace(venv=tmp_path / "missing")) == bootstrap.sys.executable
 
 
+def test_create_venv_reports_a_useful_error(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from hnt import bootstrap
+
+    fake_uv = tmp_path / "uv"
+    fake_uv.write_text("#!/bin/sh\nexit 2\n")
+    fake_uv.chmod(0o755)
+    monkeypatch.setattr(bootstrap, "_system_pythons", lambda: [])
+
+    with pytest.raises(RuntimeError) as exc:
+        bootstrap.create_venv(str(fake_uv), SimpleNamespace(venv=tmp_path / "venv"))
+    assert "Could not create the training environment" in str(exc.value)
+
+
 def test_nerve_arch_inferred_from_checkpoint(tmp_path):
     torch = pytest.importorskip("torch")
     pytest.importorskip("safetensors.torch")

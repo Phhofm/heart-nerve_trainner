@@ -1,7 +1,7 @@
 {
-  "version": "0.1.1",
+  "version": "0.1.2",
   "deps_rev": "2026-10-16",
-  "notes": "Fix: first launch could open many windows (launch loop) on a clean install. Adds a single-instance guard.",
+  "notes": "Setup now falls back to the system Python when uv cannot provide one, shows uv's real error, and uses CUDA 12.8 wheels (RTX 50-series).",
   "assets": {
     "windows": "https://github.com/Phhofm/heart-nerve_trainner/releases/latest/download/HeartNerveTrainer-Setup.exe",
     "linux": "https://github.com/Phhofm/heart-nerve_trainner/releases/latest/download/HeartNerveTrainer.AppImage"

@@ -30,8 +30,8 @@ COMMON_DEPS = [
     "psutil>=5.9",
     "pyyaml>=6",
 ]
-# Allow a pinned torch index for CUDA builds; falls back to default PyPI.
-TORCH_CUDA_INDEX = "https://download.pytorch.org/whl/cu124"
+# CUDA wheel index. cu128 covers Blackwell (RTX 50xx) and is backward compatible.
+TORCH_CUDA_INDEX = "https://download.pytorch.org/whl/cu128"
 
 
 @dataclass
@@ -114,6 +114,62 @@ def app_source_dir() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def _run(cmd: list[str]) -> tuple[int, str]:
+    p = subprocess.run(cmd, capture_output=True, text=True)
+    return p.returncode, (p.stdout + p.stderr).strip()
+
+
+def _system_pythons() -> list[str]:
+    """Interpreters we can create the venv from without downloading one."""
+    found: list[str] = []
+    for name in ("python3.12", "python3.11", "python3.10", "python3"):
+        p = shutil.which(name)
+        if p and p not in found:
+            found.append(p)
+    return found
+
+
+def _venv_python(paths: Paths) -> Path | None:
+    for cand in ("bin/python", "Scripts/python.exe"):
+        p = paths.venv / cand
+        if p.is_file():
+            return p
+    return None
+
+
+def create_venv(uv: str, paths: Paths) -> None:
+    """Create the isolated venv, falling back to a system interpreter.
+
+    `uv venv --python 3.12` may try to download a managed Python; on offline or
+    restricted machines that fails (exit 2). Try the system Pythons too, then
+    `python -m venv` directly.
+    """
+    paths.venv.parent.mkdir(parents=True, exist_ok=True)
+    attempts: list[str] = []
+    specs = ["3.12", *_system_pythons()]
+    for spec in specs:
+        shutil.rmtree(paths.venv, ignore_errors=True)
+        cmd = [uv, "venv", str(paths.venv), "--python", spec]
+        rc, out = _run(cmd)
+        if rc == 0 and _venv_python(paths):
+            return
+        attempts.append(f"$ {' '.join(cmd)}\n{out[-1200:]}")
+
+    for py in _system_pythons():
+        shutil.rmtree(paths.venv, ignore_errors=True)
+        cmd = [py, "-m", "venv", str(paths.venv)]
+        rc, out = _run(cmd)
+        if rc == 0 and _venv_python(paths):
+            return
+        attempts.append(f"$ {' '.join(cmd)}\n{out[-1200:]}")
+
+    raise RuntimeError(
+        "Could not create the training environment.\n\n"
+        + "\n\n".join(attempts)
+        + "\n\nInstall Python 3.10+ (python3) and try again, or report this message."
+    )
+
+
 def bootstrap(paths: Paths, on_log=lambda m: None, cuda: bool | None = None) -> None:
     """Create the venv and install deps. Idempotent."""
     uv = uv_path()
@@ -123,19 +179,25 @@ def bootstrap(paths: Paths, on_log=lambda m: None, cuda: bool | None = None) -> 
             "installer; set HNT_UV to its path."
         )
     on_log(f"Creating isolated environment at {paths.venv} …")
-    subprocess.run([uv, "venv", str(paths.venv), "--python", "3.12"], check=True)
+    create_venv(uv, paths)
 
     deps = required_deps()
     on_log("Installing packages (torch, onnxruntime, UI, …) …")
     cmd = [uv, "pip", "install", "--python", python_exe(paths), *deps.full_set]
     if _has_cuda() if cuda is None else cuda:
         cmd += ["--index-url", TORCH_CUDA_INDEX, "--extra-index-url", "https://pypi.org/simple"]
-    subprocess.run(cmd, check=True)
+    rc, out = _run(cmd)
+    if rc != 0:
+        raise RuntimeError(f"Dependency install failed:\n\n{out[-2000:]}")
 
     on_log("Verifying installation …")
-    rc = subprocess.run([python_exe(paths), "-c", "import torch, onnxruntime, PySide6"],
-                        capture_output=True).returncode
-    if rc != 0:
-        raise RuntimeError("Dependency verification failed (imports).")
+    p = subprocess.run(
+        [python_exe(paths), "-c", "import torch, onnxruntime, PySide6"],
+        capture_output=True, text=True,
+    )
+    if p.returncode != 0:
+        raise RuntimeError(
+            "Dependency verification failed:\n\n" + (p.stdout + p.stderr)[-1500:]
+        )
     (paths.venv / ".hnt-setup-complete").write_text("ok")
     on_log("Setup complete.")
