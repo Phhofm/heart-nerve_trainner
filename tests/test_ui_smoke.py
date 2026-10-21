@@ -91,3 +91,59 @@ def test_inference_window_constructs(qapp):
     assert win.device.count() == 3  # Auto / CUDA / CPU
     assert win.arch.currentText() == "NERVE"
     win.close()
+
+
+def test_train_is_disabled_until_the_configuration_is_valid(qapp, tmp_path):
+    from hnt.paths import find_repo
+    from hnt.ui.main_window import MainWindow
+
+    try:
+        find_repo()
+    except FileNotFoundError:
+        pytest.skip("traiNNer checkout not found")
+
+    win = MainWindow()
+    assert not win.train_btn.isEnabled()  # no HR folder yet
+
+    hr = tmp_path / "hr"
+    hr.mkdir()
+    win.hr._edit.setText(str(hr))
+    assert win.train_btn.isEnabled()
+
+    win.data_mode.setCurrentIndex(win.data_mode.findData("PAIRED"))
+    assert not win.train_btn.isEnabled()  # paired mode needs LR
+
+    lr = tmp_path / "lr"
+    lr.mkdir()
+    win.lr._edit.setText(str(lr))
+    assert win.train_btn.isEnabled()
+
+    win.lr._edit.setText(str(tmp_path / "missing"))
+    assert not win.train_btn.isEnabled()
+    win.close()
+
+
+def test_recent_paths_drop_missing_folders(qapp, tmp_path):
+    import json
+    from types import SimpleNamespace
+
+    from hnt.paths import find_repo
+    from hnt.ui.main_window import MainWindow
+
+    try:
+        find_repo()
+    except FileNotFoundError:
+        pytest.skip("traiNNer checkout not found")
+
+    win = MainWindow()
+    win.paths = SimpleNamespace(data=tmp_path)
+    good = tmp_path / "good"
+    good.mkdir()
+    win._remember_path("hr", str(good))
+    win._recent["hr"].append(str(tmp_path / "gone"))
+    win._recent_file().write_text(json.dumps(win._recent))
+
+    loaded = win._load_recent()
+    assert str(good) in loaded["hr"]
+    assert str(tmp_path / "gone") not in loaded["hr"]
+    win.close()

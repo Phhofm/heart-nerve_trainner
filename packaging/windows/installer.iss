@@ -7,7 +7,7 @@
 ; + a copy of traiNNer-redux in packaging\vendor\.
 
 #define AppName "HEART / NERVE Trainer"
-#define AppVersion "0.1.2"
+#define AppVersion "0.1.3"
 #define AppExe "HeartNerveTrainer.exe"
 ; Paths in Inno are relative to this script; the repo root is two levels up.
 #define RepoDist AddBackslash(SourcePath) + "..\..\dist"

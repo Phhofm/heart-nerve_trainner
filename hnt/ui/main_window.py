@@ -7,6 +7,8 @@ the "Get help" dialog (§9.5).
 
 from __future__ import annotations
 
+import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -139,6 +141,9 @@ class MainWindow(QMainWindow):
         self._stopped = False
         self._oom_retries = 0
         self._compile_retries = 0
+        self._training = False
+        self._exporting = False
+        self._recent = self._load_recent()
         self._build_ui()
         self._refresh_autoparams()
         QTimer.singleShot(1500, self._startup_update_check)  # non-blocking update notice
@@ -196,17 +201,17 @@ class MainWindow(QMainWindow):
             combo.currentIndexChanged.connect(self._on_choice_changed)
         self.data_mode.currentIndexChanged.connect(self._on_data_mode)
 
-        self.hr = self._path_row("Select your HR image folder…")
-        self.lr = self._path_row("(optional) matching LR folder…")
+        self.hr = self._path_row("Select your HR image folder…", key="hr")
+        self.lr = self._path_row("(optional) matching LR folder…", key="lr")
         self.lucid_btn = QPushButton("Download Lucid dataset (CC0, large)…")
         self.lucid_btn.clicked.connect(self._download_lucid)
         self.degrad = QComboBox()
         for key, preset in PRESETS.items():
             self.degrad.addItem(preset.label, key)
         self.degrad.setCurrentIndex(self.degrad.findData(DEFAULT_FIDELITY_PRESET))
-        self.val_hr = self._path_row("(optional) validation HR…")
-        self.val_lr = self._path_row("(optional) validation LR…")
-        self.out = self._path_row("final-model output folder…", dir_default=True)
+        self.val_hr = self._path_row("(optional) validation HR…", key="val_hr")
+        self.val_lr = self._path_row("(optional) validation LR…", key="val_lr")
+        self.out = self._path_row("final-model output folder…", dir_default=True, key="out")
         self.out._edit.setText(str(self.paths.data / "outputs"))  # type: ignore[attr-defined]
         self.perceptual = QCheckBox("Also track DISTS + LPIPS (slower validation)")
 
@@ -321,7 +326,10 @@ class MainWindow(QMainWindow):
         root.addWidget(footer)
 
         self.hr._edit.textChanged.connect(self._refresh_guide)  # type: ignore[attr-defined]
-        self._refresh_guide()
+        self.hr._edit.textChanged.connect(self._refresh_validity)  # type: ignore[attr-defined]
+        self.lr._edit.textChanged.connect(self._refresh_validity)  # type: ignore[attr-defined]
+        self._refresh_validity()
+        self._refresh_lucid_button()
 
     def _hw_chips(self) -> list[str]:
         hw = self.hw
@@ -347,31 +355,125 @@ class MainWindow(QMainWindow):
         w._val = m  # type: ignore[attr-defined]
         return w
 
-    def _path_row(self, placeholder: str, dir_default: bool = True) -> QWidget:
+    def _path_row(self, placeholder: str, dir_default: bool = True, key: str = "") -> QWidget:
         w = QWidget(); h = QHBoxLayout(w); h.setContentsMargins(0, 0, 0, 0)
-        e = QLineEdit(); e.setPlaceholderText(placeholder)
+        combo = QComboBox(); combo.setEditable(True)
+        combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        combo.setToolTip("Pick a recent folder, type a path, or press Browse…")
+        for p in self._recent.get(key, []):
+            combo.addItem(p)
+        combo.setCurrentIndex(-1)
+        e = combo.lineEdit()
+        e.setPlaceholderText(placeholder)
         b = QPushButton("Browse…")
-        b.clicked.connect(lambda: self._pick(e, dir_default))
-        h.addWidget(e); h.addWidget(b)
+        b.clicked.connect(lambda: self._pick(w, dir_default, key))
+        h.addWidget(combo, 1); h.addWidget(b)
         w._edit = e  # type: ignore[attr-defined]
+        w._combo = combo  # type: ignore[attr-defined]
+        w._key = key  # type: ignore[attr-defined]
         return w
 
-    def _pick(self, edit: QLineEdit, directory: bool) -> None:
+    def _pick(self, row: QWidget, directory: bool, key: str) -> None:
         if directory:
             p = QFileDialog.getExistingDirectory(self, "Select folder")
         else:
             p, _ = QFileDialog.getOpenFileName(self, "Select file")
         if p:
-            edit.setText(p)
+            row._edit.setText(p)  # type: ignore[attr-defined]
+            if key:
+                self._remember_path(key, p)
+
+    # ---------- remembered folders ----------
+    def _recent_file(self) -> Path:
+        return self.paths.data / "recent_paths.json"
+
+    def _load_recent(self) -> dict[str, list[str]]:
+        try:
+            data = json.loads(self._recent_file().read_text())
+        except Exception:  # noqa: BLE001
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        out: dict[str, list[str]] = {}
+        for key, values in data.items():
+            if not isinstance(values, list):
+                continue
+            keep: list[str] = []
+            for v in values:
+                if isinstance(v, str) and Path(v).is_dir() and v not in keep:
+                    keep.append(v)
+            if keep:
+                out[str(key)] = keep[:8]
+        return out
+
+    def _remember_path(self, key: str, path: str) -> None:
+        """Remember a folder; drop entries that no longer exist."""
+        if not key or not path:
+            return
+        paths = [p for p in self._recent.get(key, []) if p != path and Path(p).is_dir()]
+        paths.insert(0, path)
+        self._recent[key] = paths[:8]
+        try:
+            self._recent_file().write_text(json.dumps(self._recent, indent=2))
+        except OSError:
+            pass
+        row = {"hr": self.hr, "lr": self.lr, "val_hr": self.val_hr,
+               "val_lr": self.val_lr, "out": self.out}.get(key)
+        if row is not None:
+            combo = getattr(row, "_combo", None)
+            if combo is not None and combo.findText(path) < 0:
+                combo.addItem(path)
 
     def _refresh_guide(self) -> None:
         """One clear next step, always visible."""
         if self.worker is not None and self.worker.isRunning():
             self.guide.setText("Training — watch progress and the graphs on the right.")
-        elif not self.hr._edit.text().strip():  # type: ignore[attr-defined]
-            self.guide.setText("Next: choose a folder of high-res images (or download Lucid).")
+            return
+        errors = self._validation_errors()
+        if errors:
+            self.guide.setText("Next: " + errors[0])
         else:
             self.guide.setText("Ready — press Train. NERVE · 2× · Fidelity are already set.")
+
+    def _validation_errors(self) -> list[str]:
+        errors: list[str] = []
+        if not self.py:
+            errors.append("run Set up first (one-time download).")
+            return errors
+        hr = self.hr._edit.text().strip()  # type: ignore[attr-defined]
+        if not hr:
+            errors.append("choose your HR image folder (or download Lucid).")
+        elif not Path(hr).is_dir():
+            errors.append("the HR folder doesn't exist.")
+        if self.data_mode.currentData() == "PAIRED":
+            lr = self.lr._edit.text().strip()  # type: ignore[attr-defined]
+            if not lr:
+                errors.append("choose the matching LR folder for paired mode.")
+            elif not Path(lr).is_dir():
+                errors.append("the LR folder doesn't exist.")
+        return errors
+
+    def _mark_invalid(self, widget: QWidget, invalid: bool) -> None:
+        # The combo draws the border (its inner QLineEdit doesn't), so mark both.
+        for target in (getattr(widget, "_combo", None), getattr(widget, "_edit", None)):
+            if target is None:
+                continue
+            target.setProperty("invalid", invalid)
+            target.style().unpolish(target)
+            target.style().polish(target)
+
+    def _refresh_validity(self, *_: object) -> None:
+        hr = self.hr._edit.text().strip()  # type: ignore[attr-defined]
+        paired = self.data_mode.currentData() == "PAIRED"
+        lr = self.lr._edit.text().strip()  # type: ignore[attr-defined]
+        self._mark_invalid(self.hr, not (hr and Path(hr).is_dir()))
+        self._mark_invalid(self.lr, paired and not (lr and Path(lr).is_dir()))
+        errors = self._validation_errors()
+        busy = self._training or self._exporting
+        if hasattr(self, "train_btn"):
+            self.train_btn.setEnabled(not errors and not busy)
+            self.train_btn.setToolTip(errors[0] if errors else "Start training")
+        self._refresh_guide()
 
     def _open_output(self) -> None:
         from PySide6.QtCore import QUrl
@@ -393,6 +495,7 @@ class MainWindow(QMainWindow):
         if otf and self.degrad.currentData() == DEFAULT_FIDELITY_PRESET:
             self.degrad.setCurrentIndex(self.degrad.findData(DEFAULT_OTF_PRESET))
         self._update_field_visibility()
+        self._refresh_validity()
 
     def _toggle_expert(self, on: bool) -> None:
         self._adv.setVisible(on)
@@ -472,6 +575,11 @@ class MainWindow(QMainWindow):
             self.status.setText("set up the environment first")
             self.guide.setText("First-time setup is needed before training.")
             return self._setup_env()
+        errors = self._validation_errors()
+        if errors:
+            self.guide.setText("Next: " + errors[0])
+            self._refresh_validity()
+            return
         if not _retry:
             self._oom_retries = 0
             self._compile_retries = 0
@@ -491,6 +599,7 @@ class MainWindow(QMainWindow):
         self.chart.clear()
         self._last_req = req
         self._stopped = False
+        self._training = True
         self.train_btn.setEnabled(False)
         self.worker = TrainWorker(self.runner, cfg, req.name, req.iters)
         self.worker.line.connect(self.log.appendPlainText)
@@ -508,17 +617,71 @@ class MainWindow(QMainWindow):
             self.chart.add_point(name, p.iter, value)
 
     def _download_lucid(self) -> None:
-        dest = lucid_home(self.paths.data)
+        parent = QFileDialog.getExistingDirectory(
+            self, "Where should the Lucid dataset be saved?",
+            str(lucid_home(self.paths.data).parent),
+        )
+        if not parent:
+            return
+        dest = Path(parent) / "lucid"
+        existing = dest / "hr"
+        if existing.is_dir() and any(existing.iterdir()):
+            self._use_lucid(existing)
+            return
+        self._download_dest = dest
         self.lucid_btn.setEnabled(False)
         self.prog.setRange(0, 0)  # busy
-        self.guide.setText("Downloading Lucid (large, resumable)…")
+        self.status.setText("downloading Lucid…")
+        self.guide.setText("Downloading Lucid — this is large; you can keep the app open.")
         self.log.appendPlainText(f"Lucid → {dest}")
         self._dl = DownloadWorker(dest)
         self._dl.line.connect(self.log.appendPlainText)
         self._dl.done.connect(self._on_lucid_done)
         self._dl.start()
+        self._dl_timer = QTimer(self)
+        self._dl_timer.setInterval(3000)
+        self._dl_timer.timeout.connect(self._tick_lucid)
+        self._dl_timer.start()
+
+    @staticmethod
+    def _dir_size(path: Path) -> int:
+        total = 0
+        for root, _dirs, files in os.walk(path):
+            for name in files:
+                try:
+                    total += os.path.getsize(os.path.join(root, name))
+                except OSError:
+                    pass
+        return total
+
+    def _tick_lucid(self) -> None:
+        dest = getattr(self, "_download_dest", None)
+        if dest is None:
+            return
+        mb = self._dir_size(dest) / (1024 * 1024)
+        self.status.setText(f"downloading Lucid… {mb:,.0f} MB so far")
+
+    def _use_lucid(self, hr: Path) -> None:
+        self.hr._edit.setText(str(hr))  # type: ignore[attr-defined]
+        self._remember_path("hr", str(hr))
+        self.lucid_btn.setText("Lucid dataset ready ✓ (in the HR list)")
+        self.lucid_btn.setEnabled(False)
+        self.status.setText(f"Lucid ready → HR folder set to {hr}")
+        self.guide.setText("Lucid is ready — press Train.")
+
+    def _refresh_lucid_button(self) -> None:
+        hr = lucid_home(self.paths.data) / "hr"
+        if hr.is_dir() and any(hr.iterdir()):
+            self.lucid_btn.setText("Lucid dataset ready ✓ (in the HR list)")
+            self.lucid_btn.setEnabled(False)
+            combo = getattr(self.hr, "_combo", None)  # type: ignore[attr-defined]
+            if combo is not None and combo.findText(str(hr)) < 0:
+                combo.addItem(str(hr))
 
     def _on_lucid_done(self, hr_dir: str, error: str) -> None:
+        timer = getattr(self, "_dl_timer", None)
+        if timer is not None:
+            timer.stop()
         self.lucid_btn.setEnabled(True)
         self.prog.setRange(0, 1)
         self.prog.setValue(0)
@@ -526,9 +689,7 @@ class MainWindow(QMainWindow):
             self.guide.setText("Lucid download failed — press Get help if it keeps failing.")
             self._help("lucid download", error)
             return
-        self.hr._edit.setText(hr_dir)  # type: ignore[attr-defined]
-        self.status.setText(f"Lucid ready → HR folder set to {hr_dir}")
-        self.guide.setText("Lucid is ready — press Train.")
+        self._use_lucid(Path(hr_dir))
 
     def _stop(self) -> None:
         self._stopped = True
@@ -538,7 +699,8 @@ class MainWindow(QMainWindow):
 
     def _on_done(self, ok: bool, info: str) -> None:
         self.timer.stop()
-        self.train_btn.setEnabled(True)
+        self._training = False
+        self._refresh_validity()
         if not ok:
             if self._stopped:
                 self.status.setText("stopped")
@@ -548,10 +710,23 @@ class MainWindow(QMainWindow):
                 return
             self.status.setText("failed")
             self.guide.setText("Something went wrong — press Get help for a copyable report.")
-            return self._help("training", info)
+            return self._help("training", self._train_error(info), log_path=info)
         self.status.setText("training done — exporting model…")
         self.guide.setText("Training finished — exporting your model…")
         self._export_model()
+
+    @staticmethod
+    def _train_error(log_path: str) -> str:
+        """The actual traceback/message, not just the log path."""
+        p = Path(log_path)
+        if not p.is_file():
+            return str(log_path)
+        text = p.read_text(errors="ignore")
+        idx = text.rfind("Traceback (most recent call last)")
+        if idx != -1:
+            return text[idx:][-3000:]
+        lines = [ln for ln in text.splitlines() if ln.strip()]
+        return "\n".join(lines[-25:]) or str(log_path)
 
     def _maybe_auto_retry(self, info: str) -> bool:
         """Beginner-friendly recovery: shrink on OOM, drop compile on compile errors."""
@@ -599,6 +774,8 @@ class MainWindow(QMainWindow):
             self.guide.setText("Done — no checkpoint was written; check the log.")
             return
         out_dir = Path(self.out._edit.text()) if self.out._edit.text() else self.paths.data / "outputs"  # type: ignore[attr-defined]
+        self._exporting = True
+        self._refresh_validity()
         self.prog.setRange(0, 0)  # busy while converting/exporting
         self.status.setText(f"exporting model → {out_dir} …")
         self.guide.setText("Exporting safetensors / ONNX / ncnn — this can take a minute…")
@@ -613,6 +790,8 @@ class MainWindow(QMainWindow):
         self.export_worker.start()
 
     def _on_export_done(self, out_dir: str, ok: bool) -> None:
+        self._exporting = False
+        self._refresh_validity()
         self.prog.setRange(0, 1)
         self.prog.setValue(1)
         if ok:
@@ -713,13 +892,13 @@ class MainWindow(QMainWindow):
         self._setup_worker.start()
 
     def _on_setup_done(self, ok: bool, error: str) -> None:
-        self.train_btn.setEnabled(True)
+        self._training = False
+        self._refresh_validity()
         self.prog.setRange(0, 1)
         self.prog.setValue(0)
         if ok:
             self.status.setText("setup complete — ready to train")
             self.guide.setText("Setup complete — choose your images, then press Train.")
-            self.log.appendPlainText("Setup complete.")
         else:
             self.status.setText("setup failed")
             self.guide.setText("Setup failed — press Get help for a copyable report.")
@@ -733,8 +912,13 @@ class MainWindow(QMainWindow):
         self._inferwin.show()
         self._inferwin.raise_()
 
-    def _help(self, step: str, error: str = "") -> None:
-        text = help_prompt(step, error, log_tail=self.log.toPlainText()[-2000:], hw=self.hw)
+    def _help(self, step: str, error: str = "", log_path: str = "") -> None:
+        tail = self.log.toPlainText()[-2000:]
+        if log_path:
+            p = Path(log_path)
+            if p.is_file():
+                tail = p.read_text(errors="ignore")[-4000:]
+        text = help_prompt(step, error, log_tail=tail, hw=self.hw, python_exe=self.py)
         QApplication.clipboard().setText(text)
         QMessageBox.information(
             self, "Get help",

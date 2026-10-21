@@ -145,6 +145,26 @@ def test_create_venv_reports_a_useful_error(tmp_path, monkeypatch):
     assert "Could not create the training environment" in str(exc.value)
 
 
+@requires_repo
+def test_trainer_deps_include_required_packages():
+    from hnt.bootstrap import trainer_deps
+
+    deps = trainer_deps(REPO)
+    assert "antialiased_cnns" in deps
+    assert any(d.startswith("torch>=") for d in deps)
+
+
+def test_train_error_extracts_the_traceback(tmp_path):
+    from hnt.ui.main_window import MainWindow
+
+    log = tmp_path / "run.log"
+    log.write_text(
+        "noise\nTraceback (most recent call last):\n  File x\n"
+        "RuntimeError: antialiased_cnns is not installed\n"
+    )
+    assert "RuntimeError: antialiased_cnns" in MainWindow._train_error(str(log))
+
+
 def test_nerve_arch_inferred_from_checkpoint(tmp_path):
     torch = pytest.importorskip("torch")
     pytest.importorskip("safetensors.torch")

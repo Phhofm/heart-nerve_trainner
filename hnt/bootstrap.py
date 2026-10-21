@@ -54,6 +54,17 @@ def required_deps() -> Deps:
     return Deps(full_set=[torch_spec, *COMMON_DEPS], torch_spec=torch_spec)
 
 
+def trainer_deps(repo: Path) -> list[str]:
+    """The trainer's own declared dependencies (source of truth for training)."""
+    try:
+        import tomllib
+
+        data = tomllib.loads((repo / "pyproject.toml").read_text())
+        return list(data.get("project", {}).get("dependencies", []))
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def uv_path() -> str | None:
     """Find uv: $HNT_UV → bundled next to the executable → PATH."""
     env = os.environ.get("HNT_UV")
@@ -182,8 +193,12 @@ def bootstrap(paths: Paths, on_log=lambda m: None, cuda: bool | None = None) -> 
     create_venv(uv, paths)
 
     deps = required_deps()
-    on_log("Installing packages (torch, onnxruntime, UI, …) …")
-    cmd = [uv, "pip", "install", "--python", python_exe(paths), *deps.full_set]
+    # Install the trainer's own dependency list too — it declares antialiased_cnns,
+    # einops, ema-pytorch, pyvips, spandrel, timm, etc. Missing any of these makes
+    # train.py abort at its dependency check.
+    all_deps = list(dict.fromkeys([*deps.full_set, *trainer_deps(paths.repo)]))
+    on_log("Installing packages (torch, trainer deps, UI, …) …")
+    cmd = [uv, "pip", "install", "--python", python_exe(paths), *all_deps]
     if _has_cuda() if cuda is None else cuda:
         cmd += ["--index-url", TORCH_CUDA_INDEX, "--extra-index-url", "https://pypi.org/simple"]
     rc, out = _run(cmd)
@@ -192,8 +207,10 @@ def bootstrap(paths: Paths, on_log=lambda m: None, cuda: bool | None = None) -> 
 
     on_log("Verifying installation …")
     p = subprocess.run(
-        [python_exe(paths), "-c", "import torch, onnxruntime, PySide6"],
-        capture_output=True, text=True,
+        [python_exe(paths), "-c",
+         "from traiNNer.check.check_dependencies import check_dependencies; "
+         "check_dependencies()"],
+        cwd=str(paths.repo), capture_output=True, text=True,
     )
     if p.returncode != 0:
         raise RuntimeError(
