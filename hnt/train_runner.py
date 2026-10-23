@@ -21,6 +21,8 @@ from typing import Callable, Iterator
 
 from .config_gen import write_config
 
+from .hardware import quiet as _quiet
+
 _ITER_RE = re.compile(r"iter:\s*([0-9]+).*?performance:\s*([0-9.]+)\s*it/s.*?eta:\s*([0-9:\- ]+)",
                       re.IGNORECASE)
 _LOSS_RE = re.compile(r"l_g_total:\s*([0-9.eE+-]+)")
@@ -89,7 +91,7 @@ def read_telemetry() -> Telemetry:
             ["nvidia-smi",
              "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu",
              "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=5).stdout.strip().splitlines()
+            capture_output=True, text=True, timeout=5, **quiet()).stdout.strip().splitlines()
         if out:
             u, used, total, temp = [p.strip() for p in out[0].split(",")]
             t.gpu_util, t.vram_used_gb = float(u), round(float(used) / 1024, 2)
@@ -127,7 +129,7 @@ class TrainRunner:
         log = self.logs_dir / f"{name}.log"
         self.proc = subprocess.Popen(
             self._cmd(cfg_path), cwd=self.repo, stdout=log.open("w"),
-            stderr=subprocess.STDOUT, text=True, start_new_session=True,
+            stderr=subprocess.STDOUT, text=True, start_new_session=True, **_quiet(),
         )
         return log
 

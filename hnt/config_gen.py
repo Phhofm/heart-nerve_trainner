@@ -16,7 +16,7 @@ from typing import Any
 
 import yaml
 
-from .degradation import DEFAULT_FIDELITY_PRESET, DEFAULT_OTF_PRESET, get as get_deg
+from .degradation import DEFAULT_OTF_PRESET, get as get_deg
 from .paths import find_repo
 from .presets import ARCH, DataMode, Model, Profile
 

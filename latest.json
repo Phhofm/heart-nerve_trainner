@@ -1,7 +1,7 @@
 {
-  "version": "0.1.3",
+  "version": "0.1.4",
   "deps_rev": "2026-10-16",
-  "notes": "Setup installs the trainer's full dependency list (fixes 'antialiased_cnns is not installed'). Error reports include the real traceback. Train is disabled until the config is valid; Lucid asks for a destination with progress; folder pickers remember existing paths.",
+  "notes": "No console windows flashing during setup/training on Windows; deterministic test environment; code cleanup. Trainer vendored from the slimmed fork (6 configs, metric caching, torch>=2.11).",
   "assets": {
     "windows": "https://github.com/Phhofm/heart-nerve_trainner/releases/latest/download/HeartNerveTrainer-Setup.exe",
     "linux": "https://github.com/Phhofm/heart-nerve_trainner/releases/latest/download/HeartNerveTrainer.AppImage"

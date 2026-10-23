@@ -13,6 +13,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from .hardware import quiet
 from .paths import Paths
 
 # Runtime deps for the app + training. torch wheel chosen by CUDA availability.
@@ -44,7 +45,8 @@ def _has_cuda() -> bool:
     if shutil.which("nvidia-smi") is None:
         return False
     try:
-        return subprocess.run(["nvidia-smi"], capture_output=True, timeout=5).returncode == 0
+        return subprocess.run(["nvidia-smi"], capture_output=True, timeout=5,
+                              **quiet()).returncode == 0
     except Exception:
         return False
 
@@ -126,7 +128,7 @@ def app_source_dir() -> Path:
 
 
 def _run(cmd: list[str]) -> tuple[int, str]:
-    p = subprocess.run(cmd, capture_output=True, text=True)
+    p = subprocess.run(cmd, capture_output=True, text=True, **quiet())
     return p.returncode, (p.stdout + p.stderr).strip()
 
 
@@ -213,7 +215,7 @@ def bootstrap(paths: Paths, on_log=lambda m: None, cuda: bool | None = None) -> 
         [python_exe(paths), "-c",
          "from traiNNer.check.check_dependencies import check_dependencies; "
          "check_dependencies()"],
-        cwd=str(paths.repo), capture_output=True, text=True,
+        cwd=str(paths.repo), capture_output=True, text=True, **quiet(),
     )
     if p.returncode != 0:
         raise RuntimeError(

@@ -16,6 +16,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from .hardware import quiet
+
 
 @dataclass
 class ExportResult:
@@ -31,7 +33,7 @@ class ExportResult:
 
 
 def _run(cmd: list[str], repo: Path, tail: int = 2000) -> tuple[int, str]:
-    p = subprocess.run(cmd, cwd=repo, capture_output=True, text=True)
+    p = subprocess.run(cmd, cwd=repo, capture_output=True, text=True, **quiet())
     return p.returncode, (p.stdout + p.stderr)[-tail:]
 
 

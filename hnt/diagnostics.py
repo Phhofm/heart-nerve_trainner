@@ -7,7 +7,7 @@ import platform
 import subprocess
 from pathlib import Path
 
-from .hardware import Hardware, summary
+from .hardware import Hardware, quiet, summary
 
 _PREAMBLE = (
     "You are helping a beginner who is using a super-resolution model training app "
@@ -43,7 +43,8 @@ def _versions(py: str | None) -> str:
         lines.append("Training environment: NOT SET UP")
         return "\n".join(lines)
     try:
-        p = subprocess.run([py, "-c", _VERSION_CODE], capture_output=True, text=True, timeout=30)
+        p = subprocess.run([py, "-c", _VERSION_CODE], capture_output=True, text=True,
+                           timeout=30, **quiet())
         data = json.loads([ln for ln in p.stdout.splitlines() if ln.strip()][-1])
         for key, value in data.items():
             lines.append(f"{key}: {value}")

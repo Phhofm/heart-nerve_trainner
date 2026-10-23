@@ -6,6 +6,7 @@ clear warning (see ``Plan.cpu_fallback``).
 
 from __future__ import annotations
 
+import os
 import platform
 import shutil
 import subprocess
@@ -49,10 +50,17 @@ class Hardware:
         return True if not caps else max(caps) >= 8.0
 
 
+def quiet() -> dict:
+    """subprocess flags that stop console windows flashing on Windows."""
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+    return {}
+
+
 def _smi(exe: str, fields: str) -> str:
     return subprocess.run(
         [exe, f"--query-gpu={fields}", "--format=csv,noheader,nounits"],
-        capture_output=True, text=True, timeout=10, check=True,
+        capture_output=True, text=True, timeout=10, check=True, **quiet(),
     ).stdout.strip()
 
 

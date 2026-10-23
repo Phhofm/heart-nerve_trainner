@@ -13,24 +13,23 @@ import subprocess
 import sys
 from pathlib import Path
 
-from dataclasses import asdict
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout,
-    QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
+    QGroupBox, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
     QPlainTextEdit, QProgressBar, QPushButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from .. import __version__
 from ..bootstrap import runtime_python
-from ..config_gen import TrainRequest, build_config, write_config
+from ..config_gen import TrainRequest, build_config
 from ..degradation import DEFAULT_FIDELITY_PRESET, DEFAULT_OTF_PRESET, PRESETS
-from ..diagnostics import help_prompt, system_report
+from ..diagnostics import help_prompt
 from ..downloader import download_lucid, lucid_hr_dir, lucid_home
-from ..hardware import detect
+from ..hardware import detect, quiet
 from ..paths import get_paths
-from ..presets import ARCH, DEFAULT_PROFILE, PROFILES, auto_params, visible_profiles
+from ..presets import DEFAULT_PROFILE, PROFILES, auto_params, visible_profiles
 from ..train_runner import TrainRunner, looks_like_oom, read_telemetry
 from . import theme
 from .chart import MetricsChart
@@ -875,7 +874,7 @@ class MainWindow(QMainWindow):
             return False  # environment not set up yet — never launch the app binary
         try:
             return subprocess.run(
-                [py, "-c", "import torch"], capture_output=True, timeout=20
+                [py, "-c", "import torch"], capture_output=True, timeout=20, **quiet()
             ).returncode == 0
         except Exception:  # noqa: BLE001
             return False
