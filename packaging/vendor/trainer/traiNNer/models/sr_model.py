@@ -23,7 +23,6 @@ from traiNNer.archs.arch_info import ARCHS_WITHOUT_FP16
 from traiNNer.data.base_dataset import BaseDataset
 from traiNNer.data.degradations import resize_pt
 from traiNNer.losses import build_loss
-from traiNNer.losses.feature_distillation_loss import FeatureDistiller
 from traiNNer.metrics import calculate_metric
 from traiNNer.models.base_model import BaseModel
 from traiNNer.utils import get_root_logger, imwrite, tensor2img
@@ -33,21 +32,6 @@ from traiNNer.utils.logger import clickable_file_path
 from traiNNer.utils.misc import loss_type_to_label
 from traiNNer.utils.redux_options import ReduxOptions
 from traiNNer.utils.types import DataFeed
-
-
-def _stage_channels(net: nn.Module) -> int:
-    """Channels of a trunk stage's output (embed_dim). Uses conv_first's
-    out_channels (BOLT) or an embed_dim attr; raises if neither exists."""
-    cf = getattr(net, "conv_first", None)
-    oc = getattr(cf, "out_channels", None)
-    if oc is not None:
-        return int(oc)
-    ed = getattr(net, "embed_dim", None)
-    if ed is not None:
-        return int(ed)
-    raise ValueError(
-        "cannot determine stage channel count: net has neither conv_first nor embed_dim"
-    )
 
 
 class SRModel(BaseModel):
@@ -82,18 +66,6 @@ class SRModel(BaseModel):
                 self.opt.path.param_key_g,
             )
 
-        # scrub checkerboard/phase-lock artifacts from the upsampler head
-        # (ICNR re-init) while keeping the warm-started body weights.
-        if self.opt.path.icnr_reinit_g:
-            from traiNNer.utils.icnr import icnr_reinit
-
-            n = icnr_reinit(self.net_g)
-            if n == 0:
-                raise RuntimeError(
-                    "path.icnr_reinit_g is set but no Conv2d+PixelShuffle pair was found"
-                )
-            get_root_logger().info("ICNR re-init applied to %d upsampler conv(s)", n)
-
         self.net_g = self.model_to_device(self.net_g, compile=self.opt.use_compile)
 
         # define teacher network
@@ -102,9 +74,9 @@ class SRModel(BaseModel):
                 {**opt.network_g_teacher, "scale": opt.scale}
             )
 
-            assert (
-                self.opt.path.pretrain_network_g_teacher is not None
-            ), "pretrain_network_g_teacher must be defined when using network_g_teacher"
+            assert self.opt.path.pretrain_network_g_teacher is not None, (
+                "pretrain_network_g_teacher must be defined when using network_g_teacher"
+            )
 
             self.load_network(
                 self.net_g_teacher, self.opt.path.pretrain_network_g_teacher, True, None
@@ -129,15 +101,15 @@ class SRModel(BaseModel):
         if self._eco_enabled:
             assert opt.train is not None
             eco_cfg = opt.train.eco
-            assert (
-                self.net_g_teacher is not None
-            ), "ECO requires network_g_teacher and pretrain_network_g_teacher"
-            assert (
-                isinstance(opt.scale, int) and opt.scale >= 2
-            ), f"ECO requires integer scale >= 2, got {opt.scale}"
-            assert (
-                0.0 < eco_cfg.end_ratio <= 1.0
-            ), f"train.eco.end_ratio must be in (0, 1], got {eco_cfg.end_ratio}"
+            assert self.net_g_teacher is not None, (
+                "ECO requires network_g_teacher and pretrain_network_g_teacher"
+            )
+            assert isinstance(opt.scale, int) and opt.scale >= 2, (
+                f"ECO requires integer scale >= 2, got {opt.scale}"
+            )
+            assert 0.0 < eco_cfg.end_ratio <= 1.0, (
+                f"train.eco.end_ratio must be in (0, 1], got {eco_cfg.end_ratio}"
+            )
             self._eco_end_iter = int(opt.train.total_iter * eco_cfg.end_ratio)
             self._eco_mode = eco_cfg.mode
             logger.info(
@@ -200,20 +172,18 @@ class SRModel(BaseModel):
             self.has_gan = False
             gan_opt = self.opt.train.gan_opt
 
-            if not gan_opt:
-                if self.opt.train.losses:
-                    gan_opts = list(
-                        filter(
-                            lambda x: x["type"].lower() == "ganloss",
-                            self.opt.train.losses,
-                        )
+            if not gan_opt and self.opt.train.losses:
+                gan_opts = list(
+                    filter(
+                        lambda x: x["type"].lower() == "ganloss",
+                        self.opt.train.losses,
                     )
-                    if gan_opts:
-                        gan_opt = gan_opts[0]
+                )
+                if gan_opts:
+                    gan_opt = gan_opts[0]
 
-            if gan_opt:
-                if gan_opt.get("loss_weight", 0) != 0:
-                    self.has_gan = True
+            if gan_opt and gan_opt.get("loss_weight", 0) != 0:
+                self.has_gan = True
 
             self.net_d = None
             if self.has_gan:
@@ -381,37 +351,6 @@ class SRModel(BaseModel):
                     "Discriminator optimizer (optim_d) is defined but GAN loss is disabled. Discriminator optimizer will have no effect."
                 )
 
-        # feature distillation (opt-in): build per-stage channel adapters BEFORE
-        # setup_optimizers so their parameters are optimized with the student.
-        self.feature_distiller: FeatureDistiller | None = None
-        self._fd_enabled = bool(getattr(train_opt, "distill_features", False))
-        self.distill_lambda = float(getattr(train_opt, "distill_lambda", 0.5))
-        if self._fd_enabled:
-            if self.net_g_teacher is None:
-                raise ValueError(
-                    "train.distill_features requires network_g_teacher + "
-                    "path.pretrain_network_g_teacher"
-                )
-            student_c = _stage_channels(self.net_g)
-            teacher_c = _stage_channels(self.net_g_teacher)
-            ns = len(self.net_g.layers)  # pyright: ignore[reportAttributeAccessIssue]
-            nt = len(self.net_g_teacher.layers)  # pyright: ignore[reportAttributeAccessIssue]
-            if ns != nt:
-                raise ValueError(
-                    f"feature distillation needs equal stage counts; student={ns} teacher={nt}"
-                )
-            self.feature_distiller = FeatureDistiller(
-                n_stages=ns,
-                student_c=student_c,
-                teacher_c=teacher_c,
-                loss_type=str(getattr(train_opt, "distill_feature_loss", "l1")),
-            ).to(device=self.device, memory_format=self.memory_format)
-            logger.info(
-                "Feature distillation ON: %d stages, %d->%d ch adapters, lambda=%s, loss=%s.",
-                ns, student_c, teacher_c, self.distill_lambda,
-                getattr(train_opt, "distill_feature_loss", "l1"),
-            )
-
         # setup batch augmentations
         self.setup_batchaug()
 
@@ -497,11 +436,6 @@ class SRModel(BaseModel):
                 else:
                     logger.warning("Params %s will not be optimized.", k)
 
-            if self.feature_distiller is not None:
-                optim_params += [
-                    p for p in self.feature_distiller.parameters() if p.requires_grad
-                ]
-
             self.optimizer_g = self.get_optimizer(optim_params, train_opt.optim_g)
             self.optimizers.append(self.optimizer_g)
             self.optimizers_skipped.append(False)
@@ -537,9 +471,9 @@ class SRModel(BaseModel):
                 non_blocking=True,
             )
             h, w = gt.shape[-2:]
-            assert (
-                h % self.opt.scale == 0 and w % self.opt.scale == 0
-            ), f"gt size ({h}x{w}) must be divisible by scale ({self.opt.scale})"
+            assert h % self.opt.scale == 0 and w % self.opt.scale == 0, (
+                f"gt size ({h}x{w}) must be divisible by scale ({self.opt.scale})"
+            )
             mode_field = data["lq_resize_mode"]
             mode = mode_field[0] if isinstance(mode_field, list) else mode_field
             self.gt = gt
@@ -554,11 +488,7 @@ class SRModel(BaseModel):
                 memory_format=self.memory_format,
                 non_blocking=True,
             )
-            if (
-                self.net_g_teacher is not None
-                and not self._eco_enabled
-                and not getattr(self, "_fd_enabled", False)
-            ):
+            if self.net_g_teacher is not None and not self._eco_enabled:
                 with torch.inference_mode():
                     self.gt = self.net_g_teacher(self.lq).to(
                         memory_format=self.memory_format
@@ -591,9 +521,9 @@ class SRModel(BaseModel):
             self._real_hr = None
             return
 
-        assert (
-            self.lq is not None and self.gt is not None
-        ), "ECO post-process requires feed_data to have populated lq and gt"
+        assert self.lq is not None and self.gt is not None, (
+            "ECO post-process requires feed_data to have populated lq and gt"
+        )
         assert self.net_g_teacher is not None
 
         self._eco_alpha = compute_alpha(self.current_iter, self._eco_end_iter)
@@ -641,10 +571,7 @@ class SRModel(BaseModel):
             device_type=self.device.type, dtype=self.amp_dtype, enabled=self.use_amp
         ):
             if self.optimizer_g is not None:
-                if self.feature_distiller is not None:
-                    output, student_feats = self.net_g(lq, return_features=True)
-                else:
-                    output = self.net_g(lq)  # output: output_pixel_format
+                output = self.net_g(lq)  # output: output_pixel_format
                 self.output = pixelformat2rgb_pt(
                     output, self.gt, self.opt.output_pixel_format
                 )  # self.output: rgb
@@ -703,9 +630,9 @@ class SRModel(BaseModel):
                             self.l_g_gan_ema = l_g_gan_ema
 
                     elif label == "l_g_ldl":
-                        assert (
-                            self.net_g_ema is not None
-                        ), "ema_decay must be enabled for LDL loss"
+                        assert self.net_g_ema is not None, (
+                            "ema_decay must be enabled for LDL loss"
+                        )
                         with torch.inference_mode():
                             output_ema = pixelformat2rgb_pt(
                                 self.net_g_ema(lq),
@@ -726,18 +653,6 @@ class SRModel(BaseModel):
                         weighted_l_g_loss = l_g_loss * abs(loss.loss_weight)
                         l_g_total += weighted_l_g_loss / self.accum_iters
                         loss_dict[label] = weighted_l_g_loss
-
-                if self.feature_distiller is not None:
-                    with torch.inference_mode():
-                        _teacher_out, teacher_feats = self.net_g_teacher(
-                            lq, return_features=True
-                        )
-                    l_fd, _fd_parts = self.feature_distiller(
-                        student_feats, teacher_feats
-                    )
-                    weighted_fd = self.distill_lambda * l_fd
-                    l_g_total = l_g_total + weighted_fd / self.accum_iters
-                    loss_dict["l_g_fd"] = weighted_fd.detach()
 
                 if not l_g_total.isfinite():
                     self.nan_count += 1
@@ -1068,9 +983,9 @@ class SRModel(BaseModel):
                             self.opt.path.visualization, f"{dataset_name} - {img_name}"
                         )
                     else:
-                        assert (
-                            dataloader.dataset.opt.dataroot_lq is not None
-                        ), "dataroot_lq is required for val set"
+                        assert dataloader.dataset.opt.dataroot_lq is not None, (
+                            "dataroot_lq is required for val set"
+                        )
                         lq_path = val_data["lq_path"][0]
 
                         # multiple root paths are supported, find the correct root path for each lq_path
@@ -1135,7 +1050,7 @@ class SRModel(BaseModel):
             pbar.close()
 
         if run_metrics:
-            for metric in self.metric_results.keys():
+            for metric in self.metric_results:
                 self.metric_results[metric] /= len(dataloader)
                 # update the best metric result
                 self._update_best_metric_result(

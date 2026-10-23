@@ -6,6 +6,8 @@ from traiNNer.archs.topiq_arch import CFANet
 from traiNNer.utils.img_util import img2batchedtensor
 from traiNNer.utils.registry import METRIC_REGISTRY
 
+
+
 # Cache per (variant, device): validation calls these per image.
 _CACHE: dict[tuple[str, str], CFANet] = {}
 
@@ -24,9 +26,9 @@ def _get_topiq(name: str, use_ref: bool, device: torch.device) -> CFANet:
 def calculate_topiq(
     img: np.ndarray, img2: np.ndarray, device: torch.device, **kwargs
 ) -> Tensor:
-    assert (
-        img.shape == img2.shape
-    ), f"Image shapes are different: {img.shape}, {img2.shape}."
+    assert img.shape == img2.shape, (
+        f"Image shapes are different: {img.shape}, {img2.shape}."
+    )
 
     topiq = _get_topiq("cfanet_fr_kadid_res50", True, device)
     with torch.inference_mode():

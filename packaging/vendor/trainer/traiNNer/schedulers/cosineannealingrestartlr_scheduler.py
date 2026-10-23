@@ -37,9 +37,9 @@ class CosineAnnealingRestartLR(_LRScheduler):
         self.periods = periods
         self.restart_weights = restart_weights
         self.eta_min = eta_min
-        assert len(self.periods) == len(
-            self.restart_weights
-        ), "periods and restart_weights should have the same length."
+        assert len(self.periods) == len(self.restart_weights), (
+            "periods and restart_weights should have the same length."
+        )
         self.cumulative_period = [
             sum(self.periods[0 : i + 1]) for i in range(len(self.periods))
         ]

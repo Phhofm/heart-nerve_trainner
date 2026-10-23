@@ -13,12 +13,6 @@ from traiNNer.data.degradations import (
     random_add_poisson_noise_pt,
     resize_pt,
 )
-from traiNNer.data.degradations_extra import (
-    add_avif_compression,
-    add_banding,
-    add_webp_compression,
-    chroma_subsample,
-)
 from traiNNer.data.transforms import paired_random_crop
 from traiNNer.models.sr_model import SRModel
 from traiNNer.utils import RNG, DiffJPEG, get_root_logger
@@ -86,9 +80,9 @@ class RealESRGANModel(SRModel):
         # initialize
         b, c, h, w = self.lq.size()
         if self.queue_lr is None:
-            assert (
-                self.queue_size % b == 0
-            ), f"queue size {self.queue_size} should be divisible by batch size {b}"
+            assert self.queue_size % b == 0, (
+                f"queue size {self.queue_size} should be divisible by batch size {b}"
+            )
             self.queue_lr = torch.zeros(self.queue_size, c, h, w).cuda()
             _, c, h, w = self.gt.size()
             self.queue_gt = torch.zeros(self.queue_size, c, h, w).cuda()
@@ -122,27 +116,6 @@ class RealESRGANModel(SRModel):
                 self.gt.clone()
             )
             self.queue_ptr = self.queue_ptr + b
-
-    def _lq_phase_jitter(self, img: Tensor) -> Tensor:
-        """Shift ``img`` by a random sub-pixel (dx, dy) with bilinear sampling.
-
-        Each training sample gets its own random phase offset, so the model
-        cannot lock onto a fixed PixelShuffle sub-pixel grid.
-        """
-        rng = RNG.get_rng()
-        dy = float(rng.uniform(-self.opt.lq_phase_jitter_range, self.opt.lq_phase_jitter_range))
-        dx = float(rng.uniform(-self.opt.lq_phase_jitter_range, self.opt.lq_phase_jitter_range))
-        b, _c, h, w = img.shape
-        yy = torch.linspace(0, h - 1, h, device=img.device, dtype=img.dtype) - dy
-        xx = torch.linspace(0, w - 1, w, device=img.device, dtype=img.dtype) - dx
-        grid_y, grid_x = torch.meshgrid(yy, xx, indexing="ij")
-        grid = torch.stack(
-            (2.0 * grid_x / (w - 1) - 1, 2.0 * grid_y / (h - 1) - 1), dim=-1
-        )
-        grid = grid.unsqueeze(0).expand(b, -1, -1, -1)
-        return F.grid_sample(
-            img, grid, mode="bilinear", padding_mode="reflection", align_corners=True
-        )
 
     @torch.no_grad()
     def feed_data(self, data: DataFeed) -> None:
@@ -249,18 +222,6 @@ class RealESRGANModel(SRModel):
                 )  # clamp to [0, 1], otherwise JPEGer will result in unpleasant artifacts
                 out = self.jpeger(out, quality=jpeg_p)
 
-            # Extra OTF degradations (opt-in; default off → no effect on existing runs)
-            if self.opt.webp_prob > 0 and RNG.get_rng().uniform() < self.opt.webp_prob:
-                q = out.new_zeros(out.size(0)).uniform_(*self.opt.webp_range)
-                out = add_webp_compression(out.clamp(0, 1), q)
-            if self.opt.avif_prob > 0 and RNG.get_rng().uniform() < self.opt.avif_prob:
-                q = out.new_zeros(out.size(0)).uniform_(*self.opt.avif_range)
-                out = add_avif_compression(out.clamp(0, 1), q)
-            if self.opt.banding_prob > 0 and RNG.get_rng().uniform() < self.opt.banding_prob:
-                out = add_banding(out, self.opt.banding_bits, self.opt.banding_dither_prob)
-            if self.opt.chroma_prob > 0 and RNG.get_rng().uniform() < self.opt.chroma_prob:
-                out = chroma_subsample(out, 2, self.opt.chroma_jitter)
-
             # ----------------------- The second degradation process ----------------------- #
             # blur
             if RNG.get_rng().uniform() < self.opt.blur_prob2:
@@ -318,9 +279,9 @@ class RealESRGANModel(SRModel):
             #   2. JPEG compression + [resize back + sinc filter]
             # Empirically, we find other combinations (sinc + JPEG + Resize) will introduce twisted lines.
 
-            assert len(self.opt.resize_mode_list3) == len(
-                self.opt.resize_mode_prob3
-            ), "resize_mode_list3 and resize_mode_prob3 must be the same length"
+            assert len(self.opt.resize_mode_list3) == len(self.opt.resize_mode_prob3), (
+                "resize_mode_list3 and resize_mode_prob3 must be the same length"
+            )
 
             mode = random.choices(
                 self.opt.resize_mode_list3, weights=self.opt.resize_mode_prob3
@@ -351,11 +312,6 @@ class RealESRGANModel(SRModel):
                     mode=mode,
                 )
                 out = filter2d(out, self.sinc_kernel)
-
-            # random sub-pixel translation of the final LQ to break the
-            # PixelShuffle/degradation phase lock (kills checkerboard grids).
-            if self.opt.lq_phase_jitter:
-                out = self._lq_phase_jitter(out)
 
             # clamp and round
             self.lq = torch.clamp((out * 255.0).round(), 0, 255) / 255.0

@@ -8,6 +8,8 @@ from traiNNer.archs.lpips_arch import LPIPS
 from traiNNer.utils.img_util import img2batchedtensor
 from traiNNer.utils.registry import METRIC_REGISTRY
 
+
+
 # Built once per (backbone, device). Validation calls this per image; rebuilding the
 # network (and reloading its weights) every time made perceptual validation crawl.
 _CACHE: dict[tuple[str, str], LPIPS] = {}
@@ -31,9 +33,9 @@ def calculate_lpips(
     net: Literal["alex", "vgg", "squeeze"] = "alex",
     **kwargs,
 ) -> Tensor:
-    assert (
-        img.shape == img2.shape
-    ), f"Image shapes are different: {img.shape}, {img2.shape}."
+    assert img.shape == img2.shape, (
+        f"Image shapes are different: {img.shape}, {img2.shape}."
+    )
 
     loss = _get_lpips(net, device)
 

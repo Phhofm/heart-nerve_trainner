@@ -424,9 +424,9 @@ class AEModel(BaseModel):
                             self.opt.path.visualization, f"{dataset_name} - {img_name}"
                         )
                     else:
-                        assert (
-                            dataloader.dataset.opt.dataroot_gt is not None
-                        ), "dataroot_gt is required for val set"
+                        assert dataloader.dataset.opt.dataroot_gt is not None, (
+                            "dataroot_gt is required for val set"
+                        )
                         gt_path = val_data["gt_path"][0]
 
                         # multiple root paths are supported, find the correct root path for each gt_path

@@ -20,9 +20,9 @@ class SingleVideoDataset(BaseDataset):
         assert opt.dataroot_lq is not None
         assert opt.clip_size is not None
 
-        assert isinstance(
-            opt.dataroot_lq, list
-        ), f"dataroot_lq must be defined for dataset {opt.name}"
+        assert isinstance(opt.dataroot_lq, list), (
+            f"dataroot_lq must be defined for dataset {opt.name}"
+        )
 
         self.file_client = None
         self.io_backend_opt = opt.io_backend

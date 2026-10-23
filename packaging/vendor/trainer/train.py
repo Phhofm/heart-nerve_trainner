@@ -486,9 +486,9 @@ def train_pipeline(root_path: str) -> None:
 
                 # validation
                 if opt.val is not None:
-                    assert (
-                        opt.val.val_freq is not None
-                    ), "val_freq must be defined under the val section"
+                    assert opt.val.val_freq is not None, (
+                        "val_freq must be defined under the val section"
+                    )
                     if current_iter % opt.val.val_freq == 0 and apply_gradient:
                         multi_val_datasets = len(val_loaders) > 1
                         for val_loader in val_loaders:
@@ -536,10 +536,7 @@ def train_pipeline(root_path: str) -> None:
                 latest_mtime = -1.0
                 for entry in os.scandir(models_dir):
                     # Validate checkpoint extension and ensure it's not zero-byte
-                    if entry.is_file() and entry.name.rsplit(".", 1)[-1] in (
-                        "pth",
-                        "safetensors",
-                    ):
+                    if entry.is_file() and entry.name.rsplit(".", 1)[-1] in ("pth", "safetensors"):
                         stat = entry.stat()
                         if stat.st_size > 0 and stat.st_mtime > latest_mtime:
                             latest_mtime = stat.st_mtime
@@ -550,7 +547,7 @@ def train_pipeline(root_path: str) -> None:
 
             if skip_save:
                 logger.info(
-                    "A checkpoint in %s was written less than a minute ago; won't save a new one. "
+                    "A checkpoint in %s was written less than a minute ago; won't save a new one. " \
                     "Stopped at epoch: %d, iter: %d.",
                     clickable_file_path(model.opt.path.models, "experiments folder"),
                     epoch,

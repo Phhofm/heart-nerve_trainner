@@ -20,21 +20,21 @@ from .degradation import DEFAULT_FIDELITY_PRESET, DEFAULT_OTF_PRESET, get as get
 from .paths import find_repo
 from .presets import ARCH, DataMode, Model, Profile
 
-R = "options/train/RELEASE"
+N = "options/train/NERVE"
+H = "options/train/HEART"
 # templates selected by (model, profile, data_mode)
 _TEMPLATES: dict[tuple[str, str, str], list[str]] = {
-    ("HEART", "FIDELITY", "PAIRED"): [f"{R}/4x_HEART_release.yml"],
-    ("HEART", "FIDELITY", "OTF"): [f"{R}/4x_HEART_OTF_v2.yml", f"{R}/4x_HEART_OTF.yml"],
-    ("HEART", "PERCEPTUAL", "OTF"): [f"{R}/4x_HEART_OTF_gan.yml"],
-    ("HEART", "REALWORLD_FIDELITY", "OTF"): [f"{R}/4x_HEART_OTF_v2.yml", f"{R}/4x_HEART_OTF.yml"],
-    ("NERVE", "FIDELITY", "PAIRED"): [f"{R}/2x_NERVE_release.yml"],
-    ("NERVE", "FIDELITY", "OTF"): [f"{R}/2x_NERVE_OTF_fidelity.yml"],
-    ("NERVE", "PERCEPTUAL", "OTF"): [f"{R}/2x_NERVE_OTF_gan.yml", f"{R}/2x_NERVE_OTF_gan_ext.yml"],
-    ("NERVE", "REALWORLD_FIDELITY", "OTF"): [f"{R}/2x_NERVE_OTF_fidelity.yml"],
+    ("HEART", "FIDELITY", "PAIRED"): [f"{H}/4x_paired_fidelity.yml"],
+    ("HEART", "FIDELITY", "OTF"): [f"{H}/4x_otf_fidelity.yml"],
+    ("HEART", "PERCEPTUAL", "OTF"): [f"{H}/4x_otf_gan.yml"],
+    ("HEART", "REALWORLD_FIDELITY", "OTF"): [f"{H}/4x_otf_fidelity.yml"],
+    ("NERVE", "FIDELITY", "PAIRED"): [f"{N}/2x_paired_fidelity.yml"],
+    ("NERVE", "FIDELITY", "OTF"): [f"{N}/2x_otf_fidelity.yml"],
+    ("NERVE", "PERCEPTUAL", "OTF"): [f"{N}/2x_otf_gan.yml"],
+    ("NERVE", "REALWORLD_FIDELITY", "OTF"): [f"{N}/2x_otf_fidelity.yml"],
     # Modern-perceptual reuses the GAN template, then swaps D/losses (see _apply_modern).
-    ("HEART", "MODERN_PERCEPTUAL", "OTF"): [f"{R}/4x_HEART_OTF_gan.yml"],
-    ("NERVE", "MODERN_PERCEPTUAL", "OTF"): [f"{R}/2x_NERVE_OTF_gan.yml",
-                                            f"{R}/2x_NERVE_OTF_gan_ext.yml"],
+    ("HEART", "MODERN_PERCEPTUAL", "OTF"): [f"{H}/4x_otf_gan.yml"],
+    ("NERVE", "MODERN_PERCEPTUAL", "OTF"): [f"{N}/2x_otf_gan.yml"],
 }
 
 

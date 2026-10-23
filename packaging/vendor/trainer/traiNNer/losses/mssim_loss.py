@@ -111,9 +111,9 @@ def to_y_channel(
     Returns:
         image tensor: Y channel of the input tensor
     """
-    assert (
-        img.ndim == 4 and img.shape[1] == 3
-    ), "input image tensor should be RGB image batches with shape (N, 3, H, W)"
+    assert img.ndim == 4 and img.shape[1] == 3, (
+        "input image tensor should be RGB image batches with shape (N, 3, H, W)"
+    )
     color_space = color_space.lower()
     if color_space == "yiq":
         img = rgb2yiq(img)
@@ -303,7 +303,7 @@ def fspecial(
     """
     if filter_type == "gaussian":
         shape = to_2tuple(size)
-        m, n = ((ss - 1.0) / 2.0 for ss in shape)
+        m, n = [(ss - 1.0) / 2.0 for ss in shape]
         y, x = np.ogrid[-m : m + 1, -n : n + 1]
         h = np.exp(-(x * x + y * y) / (2.0 * sigma * sigma))
         h[h < np.finfo(h.dtype).eps * h.max()] = 0
@@ -406,9 +406,9 @@ class SSIMLoss(torch.nn.Module):
 
     @torch.amp.custom_fwd(cast_inputs=torch.float32, device_type="cuda")  # pyright: ignore[reportPrivateImportUsage] # https://github.com/pytorch/pytorch/issues/131765
     def forward(self, x: Tensor, y: Tensor) -> Tensor:
-        assert (
-            x.shape == y.shape
-        ), f"Input {x.shape} and reference images should have the same shape"
+        assert x.shape == y.shape, (
+            f"Input {x.shape} and reference images should have the same shape"
+        )
 
         if self.crop_border != 0:
             crop_border = self.crop_border
@@ -527,9 +527,9 @@ class MSSIMLoss(torch.nn.Module):
         Returns:
             Value of MS-SSIM metric in [0, 1] range.
         """
-        assert (
-            x.shape == y.shape
-        ), "Input and reference images should have the same shape, but got"
+        assert x.shape == y.shape, (
+            "Input and reference images should have the same shape, but got"
+        )
         f"{x.shape} and {y.shape}"
 
         x = preprocess_rgb(x, self.test_y_channel, self.data_range, self.color_space)

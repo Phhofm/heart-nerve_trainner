@@ -132,8 +132,11 @@ def _run(cmd: list[str]) -> tuple[int, str]:
 
 def _system_pythons() -> list[str]:
     """Interpreters we can create the venv from without downloading one."""
+    names = ("python3.12", "python3.11", "python3.10", "python3", "python", "py")
+    if os.name == "nt":  # Windows: versioned exes have no '3' suffix
+        names = ("python.exe", "py", "python3.12", "python3.11", "python3")
     found: list[str] = []
-    for name in ("python3.12", "python3.11", "python3.10", "python3"):
+    for name in names:
         p = shutil.which(name)
         if p and p not in found:
             found.append(p)

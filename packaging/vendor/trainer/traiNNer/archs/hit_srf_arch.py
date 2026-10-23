@@ -439,12 +439,12 @@ class HierarchicalTransformerBlock(nn.Module):
 
         # check window size
         if (window_size[0] > base_win_size[0]) and (window_size[1] > base_win_size[1]):
-            assert (
-                window_size[0] % base_win_size[0] == 0
-            ), "please ensure the window size is smaller than or divisible by the base window size"
-            assert (
-                window_size[1] % base_win_size[1] == 0
-            ), "please ensure the window size is smaller than or divisible by the base window size"
+            assert window_size[0] % base_win_size[0] == 0, (
+                "please ensure the window size is smaller than or divisible by the base window size"
+            )
+            assert window_size[1] % base_win_size[1] == 0, (
+                "please ensure the window size is smaller than or divisible by the base window size"
+            )
 
         self.norm1 = norm_layer(dim)
         self.correlation = SCC(

@@ -4,6 +4,7 @@
 # based on HAT-iLN (arXiv:2504.06629) and SST's RIB (arXiv:2603.06738)
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from typing import Literal
 
@@ -26,6 +27,37 @@ from traiNNer.archs.hat_iln_arch import (
     Upsample,
 )
 from traiNNer.utils.registry import ARCH_REGISTRY, SPANDREL_REGISTRY
+
+
+def _icnr_init_conv(conv: nn.Conv2d, upscale: int) -> None:
+    """ICNR init for a Conv2d feeding a PixelShuffle(upscale).
+
+    Every sub-pixel phase starts from the same base kernel, which keeps the
+    upsampling head from beginning with a checkerboard bias. Init-only: no
+    graph or runtime cost, and no effect once a checkpoint is loaded.
+    """
+    out_c = conv.out_channels
+    sub = upscale * upscale
+    assert out_c % sub == 0
+    base_c = out_c // sub
+    base = nn.init.kaiming_uniform_(conv.weight[:base_c].clone(), a=math.sqrt(5))
+    with torch.no_grad():
+        conv.weight.data.zero_()
+        for i in range(sub):
+            conv.weight.data[i::sub] = base
+    if conv.bias is not None:
+        nn.init.zeros_(conv.bias)
+
+
+def _icnr_init_upsampler(module: nn.Module) -> None:
+    """ICNR-init every Conv2d directly followed by a PixelShuffle in ``module``."""
+    for _name, m in module.named_modules():
+        if not isinstance(m, nn.Sequential):
+            continue
+        children = list(m)
+        for prev, nxt in zip(children, children[1:], strict=False):
+            if isinstance(prev, nn.Conv2d) and isinstance(nxt, nn.PixelShuffle):
+                _icnr_init_conv(prev, nxt.upscale_factor)
 
 
 class RIBWindowAttention(nn.Module):
@@ -547,10 +579,8 @@ class HEART(nn.Module):
         self._icnr_init()
 
     def _icnr_init(self) -> None:
-        from traiNNer.utils.icnr import icnr_reinit
-
         if self.upsampler == "pixelshuffle":
-            icnr_reinit(self.upsample)
+            _icnr_init_upsampler(self.upsample)
 
     def _init_weights(self, m: nn.Module) -> None:
         if isinstance(m, nn.Linear):

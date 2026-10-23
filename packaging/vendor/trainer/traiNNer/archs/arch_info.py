@@ -113,8 +113,6 @@ REQUIRE_32_HW = {
     "temporalspanv2",
 }
 REQUIRE_64_HW = {
-    "bolt",
-    "bolt_l",
     "cascadedgaze",
     "hit_lmlt",
     "hit_sir",
@@ -1225,11 +1223,6 @@ def initialize_official_settings(settings: dict[str, dict[str, Any]]) -> None:
 
     settings["hat_m"] = settings["hat_l"]
 
-    settings["heart"] = settings["hat_l"]
-
-    settings["bolt"] = settings["hat_l"]
-    settings["bolt_l"] = settings["hat_l"]
-
     settings["rhat_m"] = settings["rhat_l"]
     settings["rhat_s"] = settings["rhat_l"]
 
@@ -1290,26 +1283,6 @@ ALL_ARCHS: list[ArchInfo] = [
     {
         "names": ["HAT_L", "HAT_M", "HAT_S"],
         "scales": ALL_SCALES,
-        "extras": {
-            "use_checkpoint": "true  # Use checkpointing to significantly reduce VRAM usage, slightly reduces training speed."
-        },
-    },
-    {
-        "names": ["HEART"],
-        "scales": ALL_SCALES,
-        "extras": {
-            "use_checkpoint": "true  # Use checkpointing to significantly reduce VRAM usage, slightly reduces training speed."
-        },
-    },
-    {
-        "names": ["BOLT", "BOLT_L"],
-        "scales": ALL_SCALES,
-        "overrides": {
-            # BOLT inherits GRL's pad_size of 64, so lq_size must be a multiple of
-            # 64. 96 would be silently reflect-padded every batch, which teaches
-            # the model false border statistics.
-            "lq_size": "64  # During training, a square of this size is cropped from LR images. Must be a multiple of 64 for BOLT."
-        },
         "extras": {
             "use_checkpoint": "true  # Use checkpointing to significantly reduce VRAM usage, slightly reduces training speed."
         },

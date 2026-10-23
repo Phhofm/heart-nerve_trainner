@@ -178,12 +178,6 @@ class PathOptions(StrictStruct):
             description="Whether to load the pretrain model for the generator in strict mode. It should be enabled in most cases, unless you want to partially load a pretrain of a different scale or with slightly different hyperparameters."
         ),
     ] = True
-    icnr_reinit_g: Annotated[
-        bool,
-        Meta(
-            description="After loading the generator pretrain, re-initialize the PixelShuffle head convs with ICNR initialization. Used to scrub checkerboard/phase-lock artifacts that a prior training run baked into the upsampler head while keeping the body warm-started."
-        ),
-    ] = False
     resume_state: str | None = None
     pretrain_network_g_ema: str | None = None
 
@@ -224,6 +218,7 @@ class OnnxOptions(StrictStruct):
     verify: bool = True
     dtype: Literal["fp32", "fp16", "bf16"] = "fp16"
     bf16_exclude_depthwise: bool = True
+    io_dtype: Literal["auto", "fp32", "fp16"] = "auto"
     optimize: bool = True
     wrap_5d_to_4d: bool = True
 
@@ -288,24 +283,6 @@ class TrainOptions(StrictStruct):
     grad_clip_max_norm: Annotated[
         float, Meta(description="Max norm of gradients for gradient clipping.")
     ] = 100.0
-    distill_features: Annotated[
-        bool,
-        Meta(
-            description="Enable feature distillation from network_g_teacher. Runs both nets, matches per-stage LR-res features via tiny learnable 1x1 channel adapters, and adds distill_lambda * L_feature to the generator loss. Requires network_g_teacher + pretrain_network_g_teacher. Adapters are trained then discarded at deploy. Reconstruction loss uses REAL HR (teacher is not used as GT)."
-        ),
-    ] = False
-    distill_lambda: Annotated[
-        float,
-        Meta(
-            description="Weight of the feature-distillation loss term (distill_features only)."
-        ),
-    ] = 0.5
-    distill_feature_loss: Annotated[
-        str,
-        Meta(
-            description="Feature-matching metric for feature distillation: 'l1', 'l2', or 'cosine'."
-        ),
-    ] = "l1"
     warmup_iter: Annotated[
         int,
         Meta(
@@ -591,19 +568,6 @@ class ReduxOptions(StrictStruct):
         ),
     ] = (1, 25)
 
-    lq_phase_jitter: Annotated[
-        bool,
-        Meta(
-            description="Randomly shift the final LQ by a sub-pixel amount per sample to break the phase lock between the PixelShuffle grid and the degradation grid (removes checkerboard/phase-grid artifacts). Off by default: aliased (nearest-exact) LR is what teaches the model to de-alias, and sub-pixel jitter destabilizes the GAN stage."
-        ),
-    ] = False
-    lq_phase_jitter_range: Annotated[
-        float,
-        Meta(
-            description="Maximum sub-pixel shift magnitude (in LQ pixels) applied when lq_phase_jitter is enabled."
-        ),
-    ] = 0.5
-
     blur_prob: Annotated[
         float,
         Meta(
@@ -713,44 +677,6 @@ class ReduxOptions(StrictStruct):
             description="The range of JPEG quality to apply for the second JPEG degradation, in the format `[min_quality, max_quality]`."
         ),
     ] = field(default_factory=lambda: [75, 95])
-
-    # --- Extra OTF degradations (opt-in; default off) ---
-    webp_prob: Annotated[
-        float,
-        Meta(description="Probability of applying WebP compression to the LQ, between 0 and 1."),
-    ] = 0.0
-    webp_range: Annotated[
-        tuple[float, float],
-        Meta(description="WebP quality range [min, max]."),
-    ] = (60, 95)
-    avif_prob: Annotated[
-        float,
-        Meta(description="Probability of applying AVIF compression (requires Pillow AVIF support)."),
-    ] = 0.0
-    avif_range: Annotated[
-        tuple[float, float],
-        Meta(description="AVIF quality range [min, max] (0-63 typical)."),
-    ] = (30, 63)
-    banding_prob: Annotated[
-        float,
-        Meta(description="Probability of applying gradient banding to the LQ."),
-    ] = 0.0
-    banding_bits: Annotated[
-        int,
-        Meta(description="Bit depth for banding quantization (e.g. 6)."),
-    ] = 6
-    banding_dither_prob: Annotated[
-        float,
-        Meta(description="Probability of dithering when banding to avoid perfectly flat bands."),
-    ] = 0.0
-    chroma_prob: Annotated[
-        float,
-        Meta(description="Probability of applying chroma subsampling (color bleeding)."),
-    ] = 0.0
-    chroma_jitter: Annotated[
-        float,
-        Meta(description="Probability of randomizing the chroma subsampling factor."),
-    ] = 0.0
 
     resize_mode_list3: Annotated[
         list[Literal["bilinear", "bicubic", "nearest-exact", "lanczos", "area"]],

@@ -27,12 +27,12 @@ class SingleGtDataset(BaseDataset):
         self.io_backend_opt = opt.io_backend
         self.gt_folders = opt.dataroot_gt
 
-        assert (
-            self.gt_folders is not None
-        ), f"dataroot_gt must be defined for dataset {opt.name}"
-        assert isinstance(
-            self.gt_folders, list
-        ), f"dataroot_gt must be a list of folders for dataset {opt.name}"
+        assert self.gt_folders is not None, (
+            f"dataroot_gt must be defined for dataset {opt.name}"
+        )
+        assert isinstance(self.gt_folders, list), (
+            f"dataroot_gt must be a list of folders for dataset {opt.name}"
+        )
         assert opt.gt_size is not None, f"gt_size must be set for dataset {opt.name}"
         assert opt.scale is not None
         assert opt.gt_size % opt.scale == 0, (

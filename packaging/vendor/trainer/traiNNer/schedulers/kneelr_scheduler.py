@@ -22,9 +22,9 @@ class KneeLR(_LRScheduler):
         self.explore_steps = int(total_steps * explore_ratio)
         self.decay_steps = self.total_steps - self.explore_steps
 
-        assert (
-            self.decay_steps >= 0
-        ), "Total steps must be at least equal to the number of exploration steps"
+        assert self.decay_steps >= 0, (
+            "Total steps must be at least equal to the number of exploration steps"
+        )
 
         super().__init__(optimizer, last_epoch)
 

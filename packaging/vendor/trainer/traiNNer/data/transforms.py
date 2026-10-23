@@ -8,6 +8,7 @@ from torch import Tensor
 
 from traiNNer.utils.img_util import img2rgb
 
+
 VIPS_FORMAT_TO_DTYPE: dict[str, np.dtype] = {
     "uchar": np.uint8,
     "char": np.int8,
@@ -19,12 +20,9 @@ VIPS_FORMAT_TO_DTYPE: dict[str, np.dtype] = {
     "double": np.float64,
 }
 
-
 def get_vips_dtype(img: pyvips.Image) -> np.dtype:
     if img.format not in VIPS_FORMAT_TO_DTYPE:
-        raise ValueError(
-            f"Unsupported VIPS format: {img.format}. Supported formats: {list(VIPS_FORMAT_TO_DTYPE.keys())}"
-        )
+        raise ValueError(f"Unsupported VIPS format: {img.format}. Supported formats: {list(VIPS_FORMAT_TO_DTYPE.keys())}")
     return VIPS_FORMAT_TO_DTYPE[img.format]
 
 
@@ -214,11 +212,7 @@ def paired_random_crop_list(
 
     cropped_gts, cropped_lqs = [], []
     for img_gt, img_lq in zip(img_gts, img_lqs, strict=False):
-        if isinstance(img_gt, Tensor) and isinstance(img_lq, Tensor):
-            cropped_gt, cropped_lq = paired_random_crop(
-                img_gt, img_lq, gt_patch_size, scale, gt_path
-            )
-        elif isinstance(img_gt, np.ndarray) and isinstance(img_lq, np.ndarray):
+        if (isinstance(img_gt, Tensor) and isinstance(img_lq, Tensor)) or (isinstance(img_gt, np.ndarray) and isinstance(img_lq, np.ndarray)):
             cropped_gt, cropped_lq = paired_random_crop(
                 img_gt, img_lq, gt_patch_size, scale, gt_path
             )

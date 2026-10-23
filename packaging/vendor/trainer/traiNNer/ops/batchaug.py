@@ -109,18 +109,17 @@ def batch_aug(
     else:
         raise ValueError(f"{aug} is not invalid.")
 
-    if debug:
-        if i <= debug_limit:
-            torchvision.utils.save_image(
-                img_lq,
-                os.path.join(MOA_DEBUG_PATH, f"{i:06d}_postaug_{aug}_lqfinal.png"),
-                padding=0,
-            )
-            torchvision.utils.save_image(
-                img_gt,
-                os.path.join(MOA_DEBUG_PATH, f"{i:06d}_postaug_{aug}_gtfinal.png"),
-                padding=0,
-            )
+    if debug and i <= debug_limit:
+        torchvision.utils.save_image(
+            img_lq,
+            os.path.join(MOA_DEBUG_PATH, f"{i:06d}_postaug_{aug}_lqfinal.png"),
+            padding=0,
+        )
+        torchvision.utils.save_image(
+            img_gt,
+            os.path.join(MOA_DEBUG_PATH, f"{i:06d}_postaug_{aug}_gtfinal.png"),
+            padding=0,
+        )
 
     return img_gt, img_lq
 
@@ -483,9 +482,9 @@ def up(
     img_gt = img_gt[:, :, gt_bbx1:gt_bbx2, gt_bby1:gt_bby2]
     img_lq = img_lq[:, :, lq_bbx1:lq_bbx2, lq_bby1:lq_bby2]
 
-    assert (
-        img_gt.shape[2] == img_gt.shape[3]
-    ), f"Expected crop to be square, got shape {img_gt}"
+    assert img_gt.shape[2] == img_gt.shape[3], (
+        f"Expected crop to be square, got shape {img_gt}"
+    )
 
     gt_up_sample = sampling_opts[0]  # bicubic
     lq_up_sample = random.choice(sampling_opts)

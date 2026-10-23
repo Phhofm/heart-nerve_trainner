@@ -6,6 +6,8 @@ from traiNNer.losses.dists_loss import DISTSLoss
 from traiNNer.utils.img_util import img2batchedtensor
 from traiNNer.utils.registry import METRIC_REGISTRY
 
+
+
 # Built once per device: validation calls this per image, and rebuilding the net
 # (plus reloading weights) every call was the main cost of perceptual validation.
 _CACHE: dict[str, DISTSLoss] = {}
@@ -25,9 +27,9 @@ def _get_dists(device: torch.device) -> DISTSLoss:
 def calculate_dists(
     img: np.ndarray, img2: np.ndarray, device: torch.device, **kwargs
 ) -> Tensor:
-    assert (
-        img.shape == img2.shape
-    ), f"Image shapes are different: {img.shape}, {img2.shape}."
+    assert img.shape == img2.shape, (
+        f"Image shapes are different: {img.shape}, {img2.shape}."
+    )
 
     loss = _get_dists(device)
     with torch.inference_mode():
