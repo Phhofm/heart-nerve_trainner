@@ -89,7 +89,7 @@ def test_inference_window_constructs(qapp):
 
     win = InferenceWindow()
     assert win.device.count() == 3  # Auto / CUDA / CPU
-    assert win.arch.currentText() == "NERVE"
+    assert win.arch.currentText() == "nerve"
     win.close()
 
 
@@ -146,4 +146,67 @@ def test_recent_paths_drop_missing_folders(qapp, tmp_path):
     loaded = win._load_recent()
     assert str(good) in loaded["hr"]
     assert str(tmp_path / "gone") not in loaded["hr"]
+    win.close()
+
+
+def test_inference_window_lists_catalog_models_and_sets_arch(qapp):
+    from hnt.paths import find_repo
+    from hnt.ui.inference import InferenceWindow
+
+    try:
+        find_repo()
+    except FileNotFoundError:
+        pytest.skip("traiNNer checkout not found")
+
+    win = InferenceWindow()
+    assert win.catalog.count() >= 8
+    ids = {win.catalog.itemData(i) for i in range(win.catalog.count())}
+    assert {"pulse_fast_2x", "pulse_fast_4x", "pulse_2x", "pulse_4x",
+            "nerve_2x", "nerve_4x", "heart_2x", "heart_4x"} <= ids
+    assert win.catalog.currentData() == "nerve_2x"
+    assert "1,801,920 parameters" in win.info.text()
+
+    idx = win.catalog.findData("pulse_fast_4x")
+    win.catalog.setCurrentIndex(idx)
+    assert win.arch.currentText() == "pulse_fast"
+    assert win.scale.currentText() == "4"
+    win.close()
+
+
+def test_use_catalog_downloads_and_sets_model_path(qapp, monkeypatch, tmp_path):
+    from hnt.paths import find_repo
+    from hnt.ui.inference import InferenceWindow
+
+    try:
+        find_repo()
+    except FileNotFoundError:
+        pytest.skip("traiNNer checkout not found")
+
+    win = InferenceWindow()
+    fake = tmp_path / "resolved.safetensors"
+    monkeypatch.setattr(
+        "hnt.ui.inference.resolve_model",
+        lambda entry, cache: fake,
+    )
+    win._use_catalog()
+    assert win.model._edit.text() == str(fake)
+    win.close()
+
+
+def test_train_is_gated_until_setup_complete(qapp, monkeypatch, tmp_path):
+    from hnt.paths import find_repo
+    from hnt.ui import main_window as mw
+
+    try:
+        find_repo()
+    except FileNotFoundError:
+        pytest.skip("traiNNer checkout not found")
+
+    win = mw.MainWindow()
+    monkeypatch.setattr(mw, "is_setup_complete", lambda paths: False)
+    hr = tmp_path / "hr"
+    hr.mkdir()
+    win.hr._edit.setText(str(hr))  # type: ignore[attr-defined]
+    win.train_btn.click()
+    assert win.worker is None
     win.close()

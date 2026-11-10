@@ -39,11 +39,21 @@ def _demo_dir(repo: Path) -> Path | None:
     return None
 
 
-def run_selftest(paths: Paths, python_exe: str | None = None, on_log=lambda m: None) -> SelfTestResult:
+def run_selftest(paths: Paths, python_exe: str | None = None, on_log=lambda m: None, model: str = "NERVE") -> SelfTestResult:
     python_exe = python_exe or sys.executable
-    hr = _demo_dir(paths.repo)
-    if hr is None:
-        return SelfTestResult(False, "find-demo-data", detail="bundled demo dataset missing")
+    if model != "NERVE":
+        # Any non-legacy model uses the bundled paired stub as both train and val:
+        # it is a 10-image CC0 set, not a quality benchmark.
+        stub = paths.repo / "datasets/val/hnt_val"
+        hr = stub / "hr"
+        lr = stub / f"lr_x{2}"
+        if not (hr.is_dir() and lr.is_dir() and any(hr.iterdir()) and any(lr.iterdir())):
+            return SelfTestResult(False, "find-demo-data", detail="bundled paired stub dataset missing")
+    else:
+        hr = _demo_dir(paths.repo)
+        if hr is None:
+            return SelfTestResult(False, "find-demo-data", detail="bundled demo dataset missing")
+        lr = ""
 
     run_name = "hnt_selftest"
     run_dir = paths.repo / "experiments" / run_name
@@ -52,8 +62,8 @@ def run_selftest(paths: Paths, python_exe: str | None = None, on_log=lambda m: N
     # degradation knobs at the config root, and the RELEASE template already brings
     # a valid validation set (Urban100), so nothing else needs patching.
     req = TrainRequest(
-        model="NERVE", scale=2, profile="FIDELITY", data_mode="OTF",
-        hr_dir=str(hr), degradation="bicubic",
+        model=model, scale=2, profile="FIDELITY", data_mode="PAIRED" if lr else "OTF",
+        hr_dir=str(hr), lr_dir=str(lr),
         batch=2, lq_size=64, iters=_SMOKE_ITERS, name=run_name, use_compile=False,
         amp_bf16=detect().supports_bf16,
     )
@@ -64,6 +74,7 @@ def run_selftest(paths: Paths, python_exe: str | None = None, on_log=lambda m: N
 
     cfg_path = write_config(cfg, paths.repo / f"options/train/ABLATION/{run_name}.yml")
     log_path = paths.logs / f"{run_name}.log"
+    paths.logs.mkdir(parents=True, exist_ok=True)
     on_log("Running self-test: NERVE 2x, ~100 iters on bundled demo data …")
 
     with log_path.open("w") as logf:
@@ -81,8 +92,8 @@ def run_selftest(paths: Paths, python_exe: str | None = None, on_log=lambda m: N
         return SelfTestResult(False, "save-checkpoint", tail, "no checkpoint written")
 
     on_log("Exporting self-test checkpoint …")
-    res = export_checkpoint(paths.repo, ckpts[-1], paths.data / "selftest_out", "NERVE", 2,
-                            fp32=True, fp16=True, ncnn=True)
+    res = export_checkpoint(paths.repo, ckpts[-1], paths.data / "selftest_out", model, 2,
+                            fp32=True, fp16=True, ncnn=(model == "NERVE"))
     detail = "; ".join(res.errors)
     if res.safetensors is None:
         return SelfTestResult(False, "export-safetensors", tail, detail or "no safetensors")
@@ -90,7 +101,7 @@ def run_selftest(paths: Paths, python_exe: str | None = None, on_log=lambda m: N
         return SelfTestResult(False, "export-onnx", tail, detail)
     if res.onnx_fp16 is None:
         return SelfTestResult(False, "export-onnx-fp16", tail, detail)
-    if res.ncnn_dir is None:
+    if model == "NERVE" and res.ncnn_dir is None:
         return SelfTestResult(False, "export-ncnn", tail, detail)
 
     # Clean up the temp run + config so the user's machine is left tidy.

@@ -321,3 +321,42 @@ def test_lucid_hr_dir_prefers_hr_subfolder(tmp_path):
     (tmp_path / "hr").mkdir()
     assert lucid_hr_dir(tmp_path) == tmp_path / "hr"
 
+
+
+def test_pulse_fast_can_build_a_config():
+    from hnt.config_gen import build_config
+    from hnt.presets import ARCH
+
+    assert ARCH["PULSE_fast"]["type"] == "pulse_fast"
+    cfg = build_config(_req(model="PULSE_fast"), find_repo())
+    assert cfg["network_g"]["type"] == "pulse_fast"
+    assert cfg["scale"] == 2
+
+
+@requires_repo
+def test_pulse_exporter_uses_the_pulse_export_script(tmp_path, monkeypatch):
+    import sys
+    from pathlib import Path
+
+    from hnt import exporter
+
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, repo, tail=2000):
+        calls.append(cmd)
+        Path(cmd[3]).write_bytes(b"onnx")
+        return 0, ""
+
+    monkeypatch.setattr(exporter, "_run", fake_run)
+    monkeypatch.setattr(exporter, "_embed_onnx", lambda src, dst: None)
+
+    out, errs = exporter._export_onnx_pulse(
+        REPO, Path("net_g_ema_100.safetensors"), tmp_path, "net_g_ema_100", 2,
+        sys.executable,
+    )
+    assert out == tmp_path / "PULSE_2x_net_g_ema_100_fp32.onnx"
+    assert errs == []
+    assert len(calls) == 1
+    assert calls[0][1].endswith("scripts/pulse/export_minimal.py")
+    assert calls[0][2].endswith(".safetensors")
+    assert calls[0][4] == "2"

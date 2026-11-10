@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-Model = Literal["HEART", "NERVE"]
+Model = Literal["HEART", "NERVE", "PULSE", "PULSE_fast"]
 Profile = Literal["FIDELITY", "PERCEPTUAL", "MODERN_PERCEPTUAL", "REALWORLD_FIDELITY"]
 DataMode = Literal["PAIRED", "OTF"]
 
@@ -55,6 +55,8 @@ ARCH = {
     "HEART": {"type": "heart", "embed_dim": 180, "depths": [6, 6, 6, 6, 6, 6],
               "rank": 8, "attention_freq": 2, "window": 32},
     "NERVE": {"type": "nerve", "dim": 48, "n_blocks": 16, "window": 8},
+    "PULSE": {"type": "pulse", "window": 8},
+    "PULSE_fast": {"type": "pulse_fast", "window": 8},
 }
 
 

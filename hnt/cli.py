@@ -66,20 +66,27 @@ def _cmd_infer(a: argparse.Namespace) -> int:
     return 0 if not res.errors else 1
 
 
+def _cmd_catalog(_: argparse.Namespace) -> int:
+    from .catalog import load_catalog
+
+    print(json.dumps([e.__dict__ for e in load_catalog()], indent=2))
+    return 0
+
+
 def _cmd_help_text(a: argparse.Namespace) -> int:
     print(help_prompt(a.step, a.error, hw=detect()))
     return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="hnt", description="HEART / NERVE Trainer (headless)")
+    p = argparse.ArgumentParser(prog="hnt", description="SISR BODY Studio (headless)")
     p.add_argument("--version", action="version", version=__version__)
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("detect").set_defaults(fn=_cmd_detect)
 
     c = sub.add_parser("config")
-    c.add_argument("--model", default="NERVE", choices=["HEART", "NERVE"])
+    c.add_argument("--model", default="NERVE", choices=["nerve", "heart", "pulse", "pulse_fast"])
     c.add_argument("--scale", type=int, default=2, choices=SCALES)
     c.add_argument("--profile", default="FIDELITY", choices=list(PROFILES))
     c.add_argument("--data-mode", default="OTF", choices=["PAIRED", "OTF"])
@@ -102,9 +109,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("selftest").set_defaults(fn=_cmd_selftest)
 
+    sub.add_parser("catalog").set_defaults(fn=_cmd_catalog)
+
     inf = sub.add_parser("infer")
     inf.add_argument("--model", required=True, help=".safetensors/.pth HEART or NERVE model")
-    inf.add_argument("--arch", default="NERVE", choices=["HEART", "NERVE"])
+    inf.add_argument("--arch", default="NERVE", choices=["nerve", "heart", "pulse", "pulse_fast"])
     inf.add_argument("--scale", type=int, default=2, choices=SCALES)
     inf.add_argument("--input", nargs="+", required=True, help="image files and/or folders")
     inf.add_argument("--out", required=True)

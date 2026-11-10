@@ -9,12 +9,13 @@ import os
 import subprocess
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
-    QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLineEdit,
+    QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar,
     QPushButton, QVBoxLayout, QWidget,
 )
 
 from ..bootstrap import app_source_dir, runtime_python
+from ..catalog import load_catalog, resolve_model
 from ..hardware import detect
 from ..paths import get_paths
 from ..presets import SCALES
@@ -63,7 +64,7 @@ class InferenceWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.paths = get_paths()
-        self.setWindowTitle("Inference — HEART / NERVE Trainer")
+        self.setWindowTitle("Inference — SISR BODY Studio")
         self.resize(800, 620)
 
         root = QVBoxLayout()
@@ -71,8 +72,22 @@ class InferenceWindow(QMainWindow):
 
         box = QGroupBox("Run inference")
         form = QFormLayout(box)
-        self.model = self._file_row("trained or downloaded .safetensors/.pth …")
-        self.arch = QComboBox(); self.arch.addItems(["NERVE", "HEART"])
+        self.catalog = QComboBox()
+        self._catalog_entries = {e.id: e for e in load_catalog()}
+        for eid, e in self._catalog_entries.items():
+            self.catalog.addItem(e.name, eid)
+        preferred = "nerve_2x"
+        idx = self.catalog.findData(preferred)
+        if idx >= 0:
+            self.catalog.setCurrentIndex(idx)
+        else:
+            self.catalog.setCurrentIndex(0)
+        self.catalog.currentIndexChanged.connect(self._on_catalog)
+        self.info = QLabel("")
+        self.info.setWordWrap(True)
+
+        self.model = self._file_row("(optional) custom .safetensors/.pth …")
+        self.arch = QComboBox(); self.arch.addItems(["nerve", "heart", "pulse", "pulse_fast"])
         self.scale = QComboBox(); self.scale.addItems([str(s) for s in SCALES]); self.scale.setCurrentText("2")
         self.device = QComboBox(); self.device.addItems(["Auto", "CUDA", "CPU"])
         self.tile = QComboBox()
@@ -90,7 +105,14 @@ class InferenceWindow(QMainWindow):
 
         self.out = self._dir_row("output folder …")
 
-        form.addRow("Model", self.model)
+        form.addRow("Catalog model", self.catalog)
+        use = QPushButton("Download / use catalog model")
+        use.setObjectName("primary")
+        use.clicked.connect(self._use_catalog)
+        form.addRow("", use)
+        self.use_catalog = use
+        form.addRow("", self.info)
+        form.addRow("Custom model", self.model)
         form.addRow("Architecture", self.arch)
         form.addRow("Scale", self.scale)
         form.addRow("Device", self.device)
@@ -107,6 +129,27 @@ class InferenceWindow(QMainWindow):
         root.addWidget(self.log, 1)
         self.prog = QProgressBar(); self.prog.setRange(0, 1); self.prog.setValue(0)
         root.addWidget(self.prog)
+        self._on_catalog()
+
+    # ---- catalog ----
+    def _use_catalog(self) -> None:
+        eid = self.catalog.currentData()
+        e = self._catalog_entries.get(eid)
+        if not e:
+            QMessageBox.warning(self, "Catalog", "No catalog model selected.")
+            return
+        cache = self.paths.data / "models" / e.id
+        self.model._edit.setText(str(resolve_model(e, cache)))  # type: ignore[attr-defined]
+
+    def _on_catalog(self) -> None:
+        eid = self.catalog.currentData()
+        e = self._catalog_entries.get(eid)
+        if e:
+            self.arch.setCurrentText(e.arch)
+            self.scale.setCurrentText(str(e.scale))
+            self.info.setText(
+                f"{e.params:,} parameters · x{e.scale} · {e.license} · {e.vram_hint} VRAM\n{e.description}"
+            )
 
     # ---- helpers ----
     def _file_row(self, ph: str) -> QWidget:

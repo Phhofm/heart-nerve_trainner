@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__
-from ..bootstrap import runtime_python
+from ..bootstrap import is_setup_complete, runtime_python
 from ..config_gen import TrainRequest, build_config
 from ..degradation import DEFAULT_FIDELITY_PRESET, DEFAULT_OTF_PRESET, PRESETS
 from ..diagnostics import help_prompt
@@ -33,6 +33,7 @@ from ..presets import DEFAULT_PROFILE, PROFILES, auto_params, visible_profiles
 from ..train_runner import TrainRunner, looks_like_oom, read_telemetry
 from . import theme
 from .chart import MetricsChart
+from .setup_modal import SetupModal
 
 
 class TrainWorker(QThread):
@@ -133,7 +134,7 @@ class MainWindow(QMainWindow):
         self.paths = get_paths()
         self.hw = detect()
         self.py = runtime_python(self.paths)
-        self.setWindowTitle(f"HEART / NERVE Trainer  v{__version__}")
+        self.setWindowTitle(f"SISR BODY Studio  v{__version__}")
         self.resize(1120, 760)
         self.runner = TrainRunner(self.paths.repo, self.paths.logs, python_exe=self.py)
         self.worker: TrainWorker | None = None
@@ -158,7 +159,7 @@ class MainWindow(QMainWindow):
 
         header = QVBoxLayout()
         header.setSpacing(6)
-        title = QLabel("HEART / NERVE Trainer"); title.setObjectName("h1")
+        title = QLabel("SISR BODY Studio"); title.setObjectName("h1")
         subtitle = QLabel("Train your own super-resolution model — no code.")
         subtitle.setObjectName("subtitle")
         header.addWidget(title)
@@ -570,6 +571,11 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Review settings", msg)
 
     def _train(self, _retry: bool = False) -> None:
+        if not is_setup_complete(self.paths):
+            self.status.setText("training dependencies not installed")
+            self.guide.setText("Install and test the training environment first.")
+            self._show_setup_modal()
+            return
         if not self.py:
             self.status.setText("set up the environment first")
             self.guide.setText("First-time setup is needed before training.")
@@ -606,6 +612,10 @@ class MainWindow(QMainWindow):
         self.worker.done.connect(self._on_done)
         self.worker.start()
         self.timer.start()
+
+    def _show_setup_modal(self) -> None:
+        self._setup_modal = SetupModal(self.paths.data)
+        self._setup_modal.show()
 
     def _on_progress(self, p) -> None:
         self.prog.setValue(p.iter)

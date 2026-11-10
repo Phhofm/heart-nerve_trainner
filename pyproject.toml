@@ -1,7 +1,7 @@
 [project]
-name = "heart-nerve-trainer"
+name = "sisr-body-studio"
 version = "0.1.4"
-description = "A beginner-first GUI for training HEART / NERVE super-resolution models"
+description = "A beginner-first GUI for training SISR BODY suite models"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
@@ -22,10 +22,16 @@ dev = ["pytest>=7"]
 
 [project.scripts]
 hnt = "hnt.cli:main"
-heart-nerve-trainer = "hnt.ui:run"
+sisr-body-studio = "hnt.ui:run"
 
 [tool.setuptools.packages.find]
 include = ["hnt*"]
 
+[tool.setuptools.package-data]
+hnt = ["models.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+  "slow: long-running end-to-end smoke tests",
+]

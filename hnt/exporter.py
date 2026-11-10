@@ -93,6 +93,20 @@ def _export_onnx_nerve(
     return dst, [warn] if warn else []
 
 
+def _export_onnx_pulse(
+    repo: Path, checkpoint: Path, out_dir: Path, stem: str, scale: int, py: str
+) -> tuple[Path | None, list[str]]:
+    script = repo / "scripts/pulse/export_minimal.py"
+    if not script.is_file():
+        return None, ["pulse onnx exporter not found (scripts/pulse/export_minimal.py)"]
+    dst = out_dir / f"PULSE_{scale}x_{stem}_fp32.onnx"
+    rc, log = _run([py, str(script), str(checkpoint), str(dst), str(scale)], repo)
+    if rc != 0 or not dst.is_file():
+        return None, [f"onnx fp32 export failed: {log}"]
+    warn = _embed_onnx(dst, dst)
+    return dst, [warn] if warn else []
+
+
 def _export_onnx_heart(
     repo: Path, checkpoint: Path, out_dir: Path, stem: str, scale: int, py: str
 ) -> tuple[Path | None, list[str]]:
@@ -165,7 +179,9 @@ def export_checkpoint(
     # 2. ONNX — via the model's own exporter (fp32 first, then optional fp16).
     onnx_fp32 = None
     if fp32 or fp16:
-        if model == "NERVE":
+        if model.lower() == "pulse" or model.lower() == "pulse_fast":
+            onnx_fp32, errs = _export_onnx_pulse(repo, Path(checkpoint), out_dir, stem, scale, py)
+        elif model == "NERVE":
             onnx_fp32, errs = _export_onnx_nerve(repo, Path(checkpoint), out_dir, stem, scale, py)
         else:
             onnx_fp32, errs = _export_onnx_heart(repo, Path(checkpoint), out_dir, stem, scale, py)
