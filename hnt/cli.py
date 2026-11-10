@@ -60,6 +60,8 @@ def _cmd_infer(a: argparse.Namespace) -> int:
 
     res = infer_paths(a.model, list(a.input), a.out, arch=a.arch, scale=a.scale,
                       device=a.device, tile=a.tile)
+    for p in res.outputs:
+        print(f"output {p}")
     print(f"wrote {len(res.outputs)} file(s) to {a.out}")
     for e in res.errors:
         print("ERR", e, file=sys.stderr)

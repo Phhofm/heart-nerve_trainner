@@ -189,7 +189,60 @@ def test_use_catalog_downloads_and_sets_model_path(qapp, monkeypatch, tmp_path):
         lambda entry, cache: fake,
     )
     win._use_catalog()
+    win._catalog_worker.wait(2000)
+    QApplication.processEvents()
     assert win.model._edit.text() == str(fake)
+    assert win.use_catalog.isEnabled()
+    win.close()
+
+
+def test_use_catalog_reports_failure(qapp, monkeypatch, tmp_path):
+    from hnt.paths import find_repo
+    from hnt.ui.inference import InferenceWindow
+
+    try:
+        find_repo()
+    except FileNotFoundError:
+        pytest.skip("traiNNer checkout not found")
+
+    win = InferenceWindow()
+    monkeypatch.setattr(
+        "hnt.ui.inference.resolve_model",
+        lambda entry, cache: (_ for _ in ()).throw(RuntimeError("offline")),
+    )
+    monkeypatch.setattr(
+        "hnt.ui.inference.QMessageBox.warning", lambda *args, **kwargs: None
+    )
+    win._use_catalog()
+    win._catalog_worker.wait(2000)
+    QApplication.processEvents()
+    assert win.model._edit.text() == ""
+    assert "failed" in win.info.text().lower()
+    assert win.use_catalog.isEnabled()
+    win.close()
+
+
+def test_inference_completion_lists_outputs_and_enables_actions(qapp, tmp_path):
+    from hnt.paths import find_repo
+    from hnt.ui.inference import InferenceWindow
+
+    try:
+        find_repo()
+    except FileNotFoundError:
+        pytest.skip("traiNNer checkout not found")
+
+    win = InferenceWindow()
+    out = tmp_path / "out.png"
+    out.write_bytes(b"x")
+    assert not win.open_out.isEnabled()
+    assert not win.view_ab.isEnabled()
+    win._on_done(1, 0, [str(out)])
+    assert win.outputs.count() == 1
+    assert win.open_out.isEnabled()
+    assert win.view_ab.isEnabled()
+    win._on_done(0, 1, [])
+    assert win.outputs.count() == 0
+    assert not win.open_out.isEnabled()
     win.close()
 
 
@@ -209,4 +262,66 @@ def test_train_is_gated_until_setup_complete(qapp, monkeypatch, tmp_path):
     win.hr._edit.setText(str(hr))  # type: ignore[attr-defined]
     win.train_btn.click()
     assert win.worker is None
+    win.close()
+
+
+def test_pulse_training_uses_paired_mode(qapp):
+    from hnt.paths import find_repo
+    from hnt.ui.main_window import MainWindow
+
+    try:
+        find_repo()
+    except FileNotFoundError:
+        pytest.skip("traiNNer checkout not found")
+
+    win = MainWindow()
+    idx = win.model.findData("PULSE_fast")
+    win.model.setCurrentIndex(idx)
+    assert win.data_mode.currentData() == "PAIRED"
+    req = win._request()
+    assert req.model == "PULSE_fast"
+    assert req.data_mode == "PAIRED"
+
+    win.model.setCurrentIndex(win.model.findData("NERVE"))
+    otf_idx = win.data_mode.findData("OTF")
+    assert win.data_mode.model().item(otf_idx).isEnabled()
+    win.close()
+
+
+def test_close_is_gated_while_training(qapp, monkeypatch):
+    from PySide6.QtGui import QCloseEvent
+    from PySide6.QtWidgets import QMessageBox
+
+    from hnt.paths import find_repo
+    from hnt.ui import main_window as mw
+
+    try:
+        find_repo()
+    except FileNotFoundError:
+        pytest.skip("traiNNer checkout not found")
+
+    win = mw.MainWindow()
+    win._training = True
+    stopped = {"called": False}
+
+    class FakeRunner:
+        def stop(self):
+            stopped["called"] = True
+
+    win.runner = FakeRunner()
+    event = QCloseEvent()
+    monkeypatch.setattr(
+        mw.QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.No
+    )
+    win.closeEvent(event)
+    assert not event.isAccepted()
+    assert not stopped["called"]
+
+    monkeypatch.setattr(
+        mw.QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.Yes
+    )
+    event = QCloseEvent()
+    win.closeEvent(event)
+    assert event.isAccepted()
+    assert stopped["called"]
     win.close()

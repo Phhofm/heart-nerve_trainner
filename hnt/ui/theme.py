@@ -47,6 +47,15 @@ QLabel#metric {{ font-size: 21px; font-weight: 700; }}
 
 QFrame#chartpanel {{ background: {PANEL2}; border: 1px solid {LINE}; border-radius: 12px; }}
 
+QScrollArea {{ background: transparent; border: none; }}
+QScrollArea > QWidget > QWidget {{ background: transparent; }}
+QListWidget {{
+  background: {PANEL2}; border: 1px solid {LINE}; border-radius: 12px;
+  padding: 6px; outline: none;
+}}
+QListWidget::item {{ padding: 7px 8px; border-radius: 8px; }}
+QListWidget::item:selected {{ background: {ACCENT}; color: #0b0d12; }}
+
 QPushButton {{
   background: {PANEL2}; border: 1px solid {LINE}; border-radius: 12px;
   padding: 10px 16px; font-weight: 600;

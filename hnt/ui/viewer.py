@@ -26,6 +26,8 @@ class ViewerWindow(QMainWindow):
         self.slider.setValue(50)
         self.slider.valueChanged.connect(self._on_slider)
         self._split = 50
+        self._input_pm = QPixmap(str(input_path))
+        self._output_pm = QPixmap(str(output_path))
 
         central = QWidget()
         layout = QVBoxLayout(central)
@@ -33,11 +35,28 @@ class ViewerWindow(QMainWindow):
         layout.addWidget(self.slider)
         self.setCentralWidget(central)
 
-        self.left.setPixmap(QPixmap(str(input_path)).scaled(
-            self.left.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        self.right.setPixmap(QPixmap(str(output_path)).scaled(
-            self.right.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        self.left.setPixmap(self._input_pm.scaled(
+            self.left.size(), Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation))
+        self.right.setPixmap(self._output_pm.scaled(
+            self.right.size(), Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation))
         self._on_slider()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        super().resizeEvent(event)
+        self._set_images()
+
+    def _set_images(self) -> None:
+        """Keep both images fitted when the window changes size."""
+        if self._input_pm.isNull() or self._output_pm.isNull():
+            return
+        self.left.setPixmap(self._input_pm.scaled(
+            self.left.size(), Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation))
+        self.right.setPixmap(self._output_pm.scaled(
+            self.right.size(), Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation))
 
     def _on_slider(self) -> None:
         v = self.slider.value()

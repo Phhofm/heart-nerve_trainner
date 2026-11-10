@@ -12,6 +12,7 @@ dependencies = [
   "psutil>=5.9",
   "safetensors>=0.4",
   "huggingface_hub>=0.20",
+  "Pillow>=10",
 ]
 
 [project.optional-dependencies]

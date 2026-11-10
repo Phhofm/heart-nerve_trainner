@@ -18,7 +18,8 @@ from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout,
     QGroupBox, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
-    QPlainTextEdit, QProgressBar, QPushButton, QSpinBox, QVBoxLayout, QWidget,
+    QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSpinBox,
+    QVBoxLayout, QWidget,
 )
 
 from .. import __version__
@@ -182,8 +183,11 @@ class MainWindow(QMainWindow):
 
         # Model — NERVE is the recommended default (much faster to train).
         self.model = QComboBox()
+        self.model.addItem("PULSE_fast  ·  fastest, lowest VRAM", "PULSE_fast")
+        self.model.addItem("PULSE  ·  fast and compact", "PULSE")
         self.model.addItem("NERVE  ·  recommended (faster)", "NERVE")
-        self.model.addItem("HEART (higher quality, slower)", "HEART")
+        self.model.addItem("HEART  ·  highest quality, slowest", "HEART")
+        self.model.setCurrentIndex(self.model.findData("NERVE"))
         # Scale — 2× is recommended and ships with pretrained weights.
         self.scale = QComboBox()
         self.scale.addItem("2×  ·  recommended", 2)
@@ -253,6 +257,7 @@ class MainWindow(QMainWindow):
         advf.addRow("", self.compile_cb); advf.addRow("", self.ckpt_cb)
         self._adv.setVisible(False)
         form.addRow(self._adv)
+        self._update_data_mode_availability()
         self._on_data_mode()
         self._refresh_recommended()
         self._update_field_visibility()
@@ -275,8 +280,13 @@ class MainWindow(QMainWindow):
         btnrow.addWidget(self.review_btn); btnrow.addWidget(self.train_btn)
         form.addRow(btnrow)
 
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(settings)
         left = QWidget(); ll = QVBoxLayout(left); ll.setContentsMargins(0, 0, 0, 0)
-        ll.addWidget(settings); ll.addStretch(1)
+        ll.addWidget(scroll)
         cols.addWidget(left, 3)
 
         # --- dashboard column ---
@@ -487,6 +497,17 @@ class MainWindow(QMainWindow):
     def _on_choice_changed(self, *_: object) -> None:
         self._refresh_autoparams()
         self._refresh_recommended()
+        self._update_data_mode_availability()
+
+    def _update_data_mode_availability(self) -> None:
+        """PULSE models are trained from paired LR/HR data; keep that path obvious."""
+        paired_only = str(self.model.currentData()).startswith("PULSE")
+        idx = self.data_mode.findData("OTF")
+        if idx >= 0:
+            item = self.data_mode.model().item(idx)
+            item.setEnabled(not paired_only)
+            if paired_only and self.data_mode.currentData() == "OTF":
+                self.data_mode.setCurrentIndex(self.data_mode.findData("PAIRED"))
 
     def _on_data_mode(self, *_: object) -> None:
         otf = self.data_mode.currentData() == "OTF"
@@ -571,6 +592,8 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Review settings", msg)
 
     def _train(self, _retry: bool = False) -> None:
+        # The Python path can change after a successful setup, so re-resolve it here.
+        self.py = runtime_python(self.paths)
         if not is_setup_complete(self.paths):
             self.status.setText("training dependencies not installed")
             self.guide.setText("Install and test the training environment first.")
@@ -902,6 +925,7 @@ class MainWindow(QMainWindow):
 
     def _on_setup_done(self, ok: bool, error: str) -> None:
         self._training = False
+        self.py = runtime_python(self.paths)
         self._refresh_validity()
         self.prog.setRange(0, 1)
         self.prog.setValue(0)
@@ -920,6 +944,24 @@ class MainWindow(QMainWindow):
             self._inferwin = InferenceWindow()
         self._inferwin.show()
         self._inferwin.raise_()
+
+    def closeEvent(self, event) -> None:
+        """Never lose a long run to an accidental close."""
+        running = (self._training or self._exporting
+                   or (getattr(self, "_dl", None) is not None and self._dl.isRunning()))
+        if not running:
+            event.accept()
+            return
+        choice = QMessageBox.question(
+            self, "Still running",
+            "A job is still running. Stop it and close the app?",
+        )
+        if choice != QMessageBox.StandardButton.Yes:
+            event.ignore()
+            return
+        self._stopped = True
+        self.runner.stop()
+        event.accept()
 
     def _help(self, step: str, error: str = "", log_path: str = "") -> None:
         tail = self.log.toPlainText()[-2000:]
