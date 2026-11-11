@@ -9,8 +9,8 @@
   // Single source of truth for the release links.
   var REPO = "https://github.com/Phhofm/heart-nerve_trainner";
   var assets = {
-    windows: REPO + "/releases/latest/download/HeartNerveTrainer-Setup.exe",
-    linux: REPO + "/releases/latest/download/HeartNerveTrainer-linux-x86_64.tar.gz",
+    windows: REPO + "/releases/latest/download/BodyStudio-Setup.exe",
+    linux: REPO + "/releases/latest/download/BodyStudio-linux-x86_64.tar.gz",
   };
 
   function detectOS() {

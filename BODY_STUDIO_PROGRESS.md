@@ -1,4 +1,4 @@
-# SISR BODY Studio — progress
+# BODY Studio — progress
 
 Updated: 2026-11-10
 
@@ -16,9 +16,12 @@ Remote: `https://github.com/Phhofm/heart-nerve_trainner`
 
 ### Branding and shell
 
-- App rebranded to **SISR BODY Studio**.
-- `APP_NAME` is `SISR BODY Studio`, `APP_SLUG` is `sisr-body-studio`.
+- App rebranded to **BODY Studio**.
+- `APP_NAME` is `BODY Studio`, `APP_SLUG` is `body-studio`.
 - Window titles, CLI description, and `pyproject.toml` use the new name.
+- README, docs website, packaging scripts, Windows installer, release
+  workflow, and updater example URLs now use BODY Studio / `BodyStudio-*`
+  artifact names (artifacts themselves change with the next release build).
 - Main window has a modern dark theme, hardware chips, live telemetry tiles,
   validation metric charts, and in-app guidance.
 
@@ -57,6 +60,29 @@ Remote: `https://github.com/Phhofm/heart-nerve_trainner`
 - Side-by-side input/output viewer with split slider.
 - Images are rescaled on window resize so both panes stay fitted.
 
+### Video inference groundwork
+
+- New `hnt/video.py` provides a headless video pipeline:
+  - ffprobe metadata probing;
+  - ffmpeg raw RGB frame streaming;
+  - frame-by-frame BODY model inference;
+  - optional ffmpeg deinterlacing;
+  - audio-preserving re-encode;
+  - metadata mapping from the source video.
+- `hnt.cli` gained a `video` subcommand with model/arch/scale/device/tiling,
+  codec/CRF, deinterlace, overwrite, and progress reporting.
+- New `hnt/ui/video.py` adds a dedicated video inference window:
+  - catalog/custom model selection;
+  - device/tiling/codec/CRF controls;
+  - optional deinterlace;
+  - ffmpeg availability check;
+  - progress and output-folder actions.
+- Main window now exposes a `Video…` action.
+- Image batch inference now preserves folder structure inside the output
+  directory, and the CLI/UI support skipping outputs that already exist.
+- Image and video inference windows accept drag-and-drop files/folders.
+- App branding is now BODY Studio (package/script names updated too).
+
 ### Setup and training
 
 - `hnt/bootstrap.py` installs training dependencies into an isolated venv.
@@ -76,6 +102,55 @@ Remote: `https://github.com/Phhofm/heart-nerve_trainner`
   stopping the job.
 - Auto-parameters use model window size, profile, and detected VRAM.
 - OOM recovery can shrink patch/batch; compile failures retry without compile.
+- Dataset pre-flight check runs before training starts and blocks with a clear
+  message instead of a cryptic crash: missing/empty HR or LR folders, HR/LR
+  count mismatch, missing/extra pairs (both `img.png` and `imgx<scale>.png`
+  naming), and a quick corrupt-image sample scan. OTF mode only needs HR.
+  Also available headless as `python -m hnt check-dataset --hr … [--lr …]`.
+- Warm-start assistance in the training window: a "Warm start" picker offers
+  the catalog pretrained weights matching the chosen model and scale
+  (`catalog.warmstart_entry` picks the smallest safetensors candidate).
+  Selecting it downloads once on Train (non-blocking worker), then training
+  continues automatically; cached weights are reused; falling back to
+  from-scratch is always available and is the default.
+- "Existing runs…" is now a real dialog: lists every run with its latest
+  checkpoint, shows resume state, lets the user pick a checkpoint iteration,
+  and exports it through the same export pipeline as post-training export
+  (model/scale derived from the run name).
+- Dedicated Export/Convert window (`hnt/ui/export.py`): pick any checkpoint,
+  choose architecture and scale, and export safetensors + ONNX fp32/fp16
+  (+ ncnn for NERVE) without training. `ExportWorker` moved here so the
+  training window and this window share one export pipeline; the main window
+  gained an "Export / Convert…" launcher.
+- First-run quick tour (`hnt/ui/tour.py`): one screen with the four steps
+  (Set up → point at images → Train → use/export the model). Shown
+  automatically once on first run (marker file `ui/tour_seen.json` in the app
+  data dir, only when the training environment isn't set up yet), and always
+  available via a "Quick tour" button in the main window.
+- Output browser upgrades: the inference output list shows 64px thumbnails,
+  double-clicking an output opens the A/B viewer, a "Gallery view" toggle
+  switches to large-thumbnail icon mode, and the viewer's input side is
+  chosen by filename-stem matching (`infer.match_input_for_output`) so the
+  displayed pair actually corresponds instead of always using the first input.
+- Existing-runs discovery: `hnt/runs.py` lists traiNNer-redux experiment runs
+  with their config copy, EMA/plain checkpoints (sorted, EMA preferred), and
+  resumable training states. Surfaced in the training window via
+  "Existing runs…" (shows latest checkpoint + resume point per run, and notes
+  that Train auto-resumes matching runs).
+- Headless export: `python -m hnt export --run NAME [--iter N] --out DIR`
+  picks the run's latest (or requested) checkpoint, derives model/scale from
+  the run name, and runs the same export pipeline as the GUI (safetensors,
+  ONNX fp32/fp16, optional ncnn).
+- Per-file batch inference progress: the CLI emits `progress d/t path` after
+  every file (skipped files included), the inference window streams CLI output
+  and drives its progress bar determinately, and `skip_existing` now decides
+  before running the model instead of after (existing outputs cost nothing).
+- A/B viewer upgrades: rewritten on QGraphicsView — mouse-wheel zoom synced
+  across both sides (anchored at the cursor, clamped 0.1×–8×), drag-to-pan,
+  double-click or "Reset zoom" to refit, plus `set_pair()` for arbitrary
+  input/output pairs, a "Swap sides" button (mirrors the split and exchanges
+  input/output), and image drag-and-drop (one image → input side, two →
+  input+output; non-images ignored).
 
 ### Config generation
 
@@ -111,14 +186,32 @@ Remote: `https://github.com/Phhofm/heart-nerve_trainner`
 - Catalog checksum/resolution tests.
 - PULSE inference tests with a real PULSE_fast checkpoint.
 - PULSE export wrapper regression test.
+- Batch output-path structure and skip-existing tests.
+- Scene-cut helper tests.- Dataset pre-flight tests (empty/missing folders, count mismatch, missing/extra
+  pairs with the `x<scale>` naming template, corrupt image samples, OTF mode,
+  subfolder search).
+- Run discovery tests (checkpoint parsing/sorting, EMA preference, resume
+  states, config discovery, empty/missing repos).
+- Headless export CLI tests (latest/`--iter` checkpoint pick, model+scale from
+  run name, error paths).
+- Per-file inference progress tests (callback order/totals, skip-existing
+  avoids the model but still reports, CLI progress lines, output-line parsers,
+  progress-bar determinate/clamped behavior).
 - PULSE_fast end-to-end smoke test:
   bundled 10-image paired stub → train → validate → checkpoint → ONNX export.
 - Setup modal tests.
-- Viewer tests.
+- Video pipeline tests, including real ffmpeg frame streaming.
+- Viewer tests (pair display, `set_pair`, swap sides, drag-and-drop rules).
 - UI smoke tests for model selection, paired-only PULSE behavior, catalog
-  download success/failure, inference output actions, and close-job guard.
+  download success/failure, inference output actions, video window construction,
+  video progress handling, drag-and-drop input, and close-job guard.
 
-Latest full suite result: **70 passed**.
+Latest full suite result: **154 passed**.
+
+Version: **0.2.0** — the 0.1.x series covered the training dashboard and
+setup flow; 0.2.0 adds video inference, dataset/run/export ergonomics, the
+A/B viewer rewrite, warm start, and the quick tour.
+
 
 CI fix: `Pillow>=10` was added to runtime dependencies because inference and
 viewer tests use Pillow; it had previously been present locally but not declared
@@ -132,9 +225,14 @@ to CI.
 - `hnt/cli.py` — headless CLI.
 - `hnt/exporter.py` — checkpoint export.
 - `hnt/config_gen.py` — training config generation.
+- `hnt/dataset_check.py` — pre-flight HR/LR dataset validation.
+- `hnt/runs.py` — training run discovery (checkpoints, resume states).
 - `hnt/selftest.py` — end-to-end smoke test.
 - `hnt/ui/main_window.py` — training dashboard.
 - `hnt/ui/inference.py` — inference window.
+- `hnt/ui/video.py` — video inference window.
+- `hnt/video.py` — headless video pipeline.
+- `hnt/scenes.py` — scene-cut helpers for temporal training/inference.
 - `hnt/ui/viewer.py` — A/B viewer.
 - `hnt/ui/setup_modal.py` — dependency install gate.
 - `hnt/ui/theme.py` — dark UI stylesheet.
@@ -143,24 +241,26 @@ to CI.
 
 ## Next priorities
 
-1. Add catalog/pretrain download assistance to the main training window.
-2. Improve run management:
-   - list existing runs;
-   - resume/restart safely;
-   - show checkpoint selection.
-3. Improve inference batch UX:
-   - per-file progress;
-   - output thumbnails or a richer output browser;
-   - selected output ↔ selected input pairing.
-4. Improve the A/B viewer:
-   - zoom/pan;
-   - direct image drag-and-drop;
-   - pick arbitrary input/output pairs.
-5. Update README/docs and packaging names/URLs from the old
-   HEART/NERVE Trainer branding to SISR BODY Studio.
-6. Add error reporting polish and a first-run quick tour.
-7. Consider a dedicated Convert/Export page rather than only post-training
-   export.
+1. ~~Improve run management~~ (done: Existing runs dialog with checkpoint
+   export, warm start, headless export, plus safe Archive (rename to
+   `<name>_archived_<ts>`, reversible) and Delete (recursive, confirmed)
+   actions with path-traversal guards — `runs.archive_run`/`runs.delete_run`).
+2. ~~Improve inference batch UX~~ (done: per-file progress, thumbnails,
+   double-click A/B with stem-matched input pairing; a richer output browser
+   with a grid/gallery view remains optional polish).
+3. ~~Improve the A/B viewer~~ (done: zoom/pan on synced QGraphicsView panes,
+   drag-and-drop, arbitrary pairs, swap sides).
+4. ~~Add catalog/pretrain download assistance to the main training window~~
+   (done: Warm start picker with automatic one-time download).
+5. ~~Update README/docs and packaging names/URLs from the old
+   HEART/NERVE Trainer branding to BODY Studio~~ (done: README, docs site,
+   packaging scripts, installer, release workflow, updater example URLs now
+   use BODY Studio / BodyStudio artifacts).
+6. ~~Add error reporting polish and a first-run quick tour~~ (tour done;
+   error reporting already produces a copyable plain-language report via
+   "Get help / report" — further polish optional).
+7. ~~Consider a dedicated Convert/Export page rather than only post-training
+   export~~ (done: Export / Convert window).
 
 ## Non-goals for now
 

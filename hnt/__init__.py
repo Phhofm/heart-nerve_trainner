@@ -1,4 +1,4 @@
-"""SISR BODY Studio — a beginner-first GUI for training SISR models.
+"""BODY Studio — a beginner-first GUI for training and running BODY models.
 
 The app is a thin shell over the `traiNNer-redux` training harness: it detects
 hardware, bootstraps an isolated venv, generates a training config, runs

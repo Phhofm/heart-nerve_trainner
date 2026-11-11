@@ -11,7 +11,7 @@ from .hardware import Hardware, quiet, summary
 
 _PREAMBLE = (
     "You are helping a beginner who is using a super-resolution model training app "
-    "(SISR BODY Studio). They hit a problem. Guide them step by step, in simple "
+    "(BODY Studio). They hit a problem. Guide them step by step, in simple "
     "language, to fix it. Assume they are not a programmer. Ask for more info only if "
     "truly needed. Here is the technical context:"
 )

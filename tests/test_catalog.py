@@ -9,7 +9,6 @@ import pytest
 
 from hnt.catalog import CatalogEntry, load_catalog, verify_file
 
-
 EXPECTED_FAMILIES = {"PULSE_fast", "PULSE", "NERVE", "HEART"}
 
 
@@ -113,6 +112,7 @@ def test_catalog_entry_from_dict_requires_all_fields():
 def test_cli_catalog_prints_entries():
     import io
     import sys
+
     from hnt.cli import build_parser
 
     p = build_parser()
@@ -128,3 +128,29 @@ def test_cli_catalog_prints_entries():
     data = json.loads(buf.getvalue())
     assert len(data) >= 8
     assert {m["family"] for m in data} == EXPECTED_FAMILIES
+
+
+def test_warmstart_entry_matches_arch_scale_and_format():
+    from hnt.catalog import warmstart_entry
+
+    entries = load_catalog()
+    e = warmstart_entry(entries, "NERVE", 2)
+    assert e is not None and e.arch == "nerve" and e.scale == 2
+    assert "safetensors" in e.formats
+    assert warmstart_entry(entries, "HEART", 4).arch == "heart"
+    assert warmstart_entry(entries, "PULSE_fast", 4).arch == "pulse_fast"
+    assert warmstart_entry(entries, "NERVE", 8) is None
+
+
+def test_warmstart_entry_prefers_fewest_params():
+    from hnt.catalog import CatalogEntry, warmstart_entry
+
+    def mk(pid, arch, params, scale=2, formats=("safetensors",)):
+        return CatalogEntry(id=pid, name=pid, family=arch.upper(), arch=arch, scale=scale,
+                            params=params, license="MIT", formats=formats,
+                            download_url="https://huggingface.co/x/resolve/main/y.safetensors",
+                            vram_hint="", description="")
+
+    entries = [mk("big", "nerve", 5_000_000), mk("small", "nerve", 100_000),
+               mk("onnx_only", "nerve", 1, formats=("onnx_fp16",))]
+    assert warmstart_entry(entries, "NERVE", 2).id == "small"

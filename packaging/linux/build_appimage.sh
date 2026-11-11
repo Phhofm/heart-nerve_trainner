@@ -12,13 +12,13 @@ rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" \
          "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 
-cp -r dist/HeartNerveTrainer/* "$APPDIR/usr/bin/"
+cp -r dist/BodyStudio/* "$APPDIR/usr/bin/"
 
 cat > "$APPDIR/usr/share/applications/heart-nerve-trainer.desktop" <<'EOF'
 [Desktop Entry]
 Type=Application
-Name=HEART / NERVE Trainer
-Exec=HeartNerveTrainer
+Name=BODY Studio
+Exec=BodyStudio
 Icon=heart-nerve-trainer
 Categories=Graphics;Education;
 Terminal=false

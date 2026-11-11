@@ -1,11 +1,12 @@
 <div align="center">
 
-# HEART / NERVE Trainer
+# BODY Studio
 
-### Train your own image upscaler — no code.
+### Train, use, and export your own image & video upscalers — no code.
 
 Pick a model, point at a folder of photos, press **Train**.
-When it finishes, you get a model you can use anywhere.
+When it finishes, you get a model you can use anywhere — and you can
+upscale single images or whole videos right inside the app.
 
 [![Download](https://img.shields.io/badge/Download-Latest%20Release-7c9cff?style=for-the-badge)](https://github.com/Phhofm/heart-nerve_trainner/releases/latest)
 
@@ -14,7 +15,7 @@ When it finishes, you get a model you can use anywhere.
 [![License: MIT](https://img.shields.io/github/license/Phhofm/heart-nerve_trainner)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-7c9cff)](#download)
 
-<img src="docs/assets/app.png" width="880" alt="HEART / NERVE Trainer main window">
+<img src="docs/assets/app.png" width="880" alt="BODY Studio main window">
 
 </div>
 
@@ -22,13 +23,16 @@ When it finishes, you get a model you can use anywhere.
 
 ## What is this?
 
-A friendly desktop app for **training super-resolution models**. In plain words:
-it teaches an AI to make images **bigger and sharper** using your own photos.
+A friendly desktop app for **super-resolution** — train, run, and export the
+BODY family of upscaling models. In plain words: it teaches an AI to make
+images and videos **bigger and sharper** using your own photos.
 
 - **No terminal, no Python, no config files.**
 - **Sensible defaults** — the recommended choices are pre-selected and outlined in green.
 - **Live feedback** — progress bar, live PSNR/SSIM graphs, and a log you can read.
 - **It exports for you** — `.safetensors`, ONNX (fp32 + fp16), and ncnn for NERVE.
+- **Inference built in** — upscale single images (with drag-and-drop and an A/B
+  viewer) or whole videos (with audio preserved and optional deinterlacing).
 
 > Built on the open-source [traiNNer-redux](https://github.com/the-database/traiNNer-redux)
 > engine. The app sets everything up in its own folder; your system Python is never touched.
@@ -37,14 +41,14 @@ it teaches an AI to make images **bigger and sharper** using your own photos.
 
 | Your system | Get |
 |---|---|
-| **Windows** | [HeartNerveTrainer-Setup.exe](https://github.com/Phhofm/heart-nerve_trainner/releases/latest/download/HeartNerveTrainer-Setup.exe) |
-| **Linux** | [HeartNerveTrainer-linux-x86_64.tar.gz](https://github.com/Phhofm/heart-nerve_trainner/releases/latest/download/HeartNerveTrainer-linux-x86_64.tar.gz) |
+| **Windows** | [BodyStudio-Setup.exe](https://github.com/Phhofm/heart-nerve_trainner/releases/latest/download/BodyStudio-Setup.exe) |
+| **Linux** | [BodyStudio-linux-x86_64.tar.gz](https://github.com/Phhofm/heart-nerve_trainner/releases/latest/download/BodyStudio-linux-x86_64.tar.gz) |
 
 **Linux** is a portable bundle — no install:
 
 ```bash
-tar xzf HeartNerveTrainer-linux-x86_64.tar.gz
-./HeartNerveTrainer/HeartNerveTrainer
+tar xzf BodyStudio-linux-x86_64.tar.gz
+./BodyStudio/BodyStudio
 ```
 
 If it complains about the Qt `xcb` plugin on a fresh Debian/Ubuntu:
@@ -103,7 +107,7 @@ Profiles: **Fidelity** (clean, default), **Perceptual** (sharper textures), **Re
 python -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev,train]"
 
-pytest -q          # 39 tests (parser, configs, updater, GUI smoke)
+pytest -q          # 130+ tests (configs, inference, video, runs, GUI smoke)
 python app.py      # launch the GUI
 hnt detect         # print detected hardware
 hnt selftest       # end-to-end: train → validate → save → export

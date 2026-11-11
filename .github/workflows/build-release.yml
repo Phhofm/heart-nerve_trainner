@@ -20,7 +20,7 @@ jobs:
       - name: Freeze app (onedir)
         run: >
           pyinstaller --noconfirm --clean --onedir --windowed
-          --name HeartNerveTrainer
+          --name BodyStudio
           --exclude-module torch --exclude-module torchvision
           --exclude-module onnx --exclude-module onnxruntime
           --exclude-module onnxconverter_common --exclude-module onnxsim
@@ -29,9 +29,9 @@ jobs:
       - name: Stage trainer + uv + CLI sources
         shell: pwsh
         run: |
-          Copy-Item -Recurse -Force hnt dist/HeartNerveTrainer/hnt
-          Copy-Item -Recurse -Force packaging/vendor/trainer dist/HeartNerveTrainer/trainer
-          Copy-Item -Force (Get-Command uv).Source dist/HeartNerveTrainer/uv.exe
+          Copy-Item -Recurse -Force hnt dist/BodyStudio/hnt
+          Copy-Item -Recurse -Force packaging/vendor/trainer dist/BodyStudio/trainer
+          Copy-Item -Force (Get-Command uv).Source dist/BodyStudio/uv.exe
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
       - name: Build installer (Inno Setup)

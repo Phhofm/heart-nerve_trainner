@@ -96,7 +96,7 @@ def apply_update(installer: Path) -> None:
 #   "deps_rev": "2026-10-16",
 #   "notes": "Adds WebP/AVIF OTF degradations",
 #   "assets": {
-#     "windows": "https://github.com/.../HeartNerveTrainer-Setup.exe",
-#     "linux":   "https://github.com/.../HeartNerveTrainer.AppImage"
+#     "windows": "https://github.com/.../BodyStudio-Setup.exe",
+#     "linux":   "https://github.com/.../BodyStudio.AppImage"
 #   }
 # }

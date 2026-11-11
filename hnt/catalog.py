@@ -100,3 +100,12 @@ def resolve_model(entry: CatalogEntry, cache_dir: str | Path) -> Path:
     if entry.sha256 and verify_file(path, entry.sha256) is not True:
         raise ValueError(f"checksum mismatch for {entry.id}")
     return path
+
+
+def warmstart_entry(entries: list[CatalogEntry], model: str, scale: int) -> CatalogEntry | None:
+    """Best warm-start candidate for a model/scale: matching arch and scale,
+    trainable format (safetensors), fewest parameters (fastest for beginners)."""
+    want = str(model).lower()
+    cands = [e for e in entries
+             if e.arch == want and e.scale == int(scale) and "safetensors" in e.formats]
+    return min(cands, key=lambda e: e.params) if cands else None

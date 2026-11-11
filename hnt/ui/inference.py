@@ -9,11 +9,26 @@ import os
 import subprocess
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar,
-    QPushButton, QVBoxLayout, QWidget,
+    QCheckBox,
+    QComboBox,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QMessageBox,
+    QPlainTextEdit,
+    QProgressBar,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
 
 from ..bootstrap import app_source_dir, runtime_python
@@ -24,16 +39,44 @@ from ..paths import get_paths
 from ..presets import SCALES
 
 
+def parse_progress(ln: str) -> tuple[int, int] | None:
+    """``progress 3/10 foo.png`` → (3, 10); None otherwise."""
+    if not ln.startswith("progress "):
+        return None
+    try:
+        done, total = ln.split()[1].split("/")
+        return int(done), int(total)
+    except (IndexError, ValueError):
+        return None
+
+
+def parse_output(ln: str) -> str | None:
+    """``output /path`` → the path; None otherwise."""
+    return ln[len("output "):].strip() if ln.startswith("output ") else None
+
+
+def parse_wrote(ln: str) -> int | None:
+    """``wrote 7 file(s) …`` → 7; None otherwise."""
+    if not ln.startswith("wrote "):
+        return None
+    try:
+        return int(ln.split()[1])
+    except (IndexError, ValueError):
+        return None
+
+
 class InferWorker(QThread):
     """Run inference in the isolated venv (works in frozen builds, never freezes the UI)."""
 
     line = Signal(str)
+    progress = Signal(int, int)  # (done, total) — parsed from CLI progress lines
     done = Signal(int, int, list)  # (wrote, errors, output paths)
 
-    def __init__(self, model, inputs, out, arch, scale, device, tile):
+    def __init__(self, model, inputs, out, arch, scale, device, tile, skip_existing=False):
         super().__init__()
         self.model, self.inputs, self.out = model, inputs, out
         self.arch, self.scale, self.device, self.tile = arch, scale, device, tile
+        self.skip_existing = skip_existing
 
     def run(self) -> None:
         src = app_source_dir()
@@ -43,26 +86,31 @@ class InferWorker(QThread):
             "--input", *self.inputs, "--out", self.out,
             "--device", self.device, "--tile", str(self.tile),
         ]
+        if self.skip_existing:
+            cmd.append("--skip-existing")
         env = dict(os.environ)
         env["PYTHONPATH"] = str(src) + os.pathsep + env.get("PYTHONPATH", "")
+        outputs: list[str] = []
+        wrote = 0
         try:
-            p = subprocess.run(cmd, cwd=str(src), env=env, capture_output=True, text=True)
+            p = subprocess.Popen(cmd, cwd=str(src), env=env,
+                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                 text=True, bufsize=1)
+            assert p.stdout is not None
+            for raw in p.stdout:
+                ln = raw.rstrip("\n")
+                self.line.emit(ln)
+                if pr := parse_progress(ln):
+                    self.progress.emit(*pr)
+                elif out := parse_output(ln):
+                    outputs.append(out)
+                elif wrote_n := parse_wrote(ln):
+                    wrote = wrote_n
+            p.wait()
         except Exception as e:  # noqa: BLE001
             self.line.emit(f"ERROR: {e}")
             self.done.emit(0, 1, [])
             return
-        for ln in (p.stdout + p.stderr).splitlines():
-            self.line.emit(ln)
-        wrote = 0
-        outputs: list[str] = []
-        for ln in p.stdout.splitlines():
-            if ln.startswith("output "):
-                outputs.append(ln[len("output "):].strip())
-            elif ln.startswith("wrote "):
-                try:
-                    wrote = int(ln.split()[1])
-                except (IndexError, ValueError):
-                    pass
         self.done.emit(wrote, 0 if p.returncode == 0 else 1, outputs)
 
 
@@ -86,7 +134,7 @@ class InferenceWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.paths = get_paths()
-        self.setWindowTitle("Inference — SISR BODY Studio")
+        self.setWindowTitle("Inference — BODY Studio")
         self.resize(800, 620)
 
         root = QVBoxLayout()
@@ -142,6 +190,8 @@ class InferenceWindow(QMainWindow):
         form.addRow("Input", self.inputs)
         form.addRow("", inwrap)
         form.addRow("Output folder", self.out)
+        self.skip_existing = QCheckBox("Skip files whose outputs already exist")
+        form.addRow("", self.skip_existing)
         orow = QHBoxLayout()
         self.open_out = QPushButton("Open output folder")
         self.open_out.clicked.connect(self._open_output)
@@ -156,14 +206,33 @@ class InferenceWindow(QMainWindow):
         root.addWidget(box)
 
         self.outputs = QListWidget(); self.outputs.setObjectName("outputlist")
-        self.outputs.setToolTip("Upscaled images produced by this run")
+        self.outputs.setToolTip("Upscaled images produced by this run — double-click to compare A/B")
+        self.outputs.itemDoubleClicked.connect(lambda _item: self._open_viewer())
+        self.gallery_cb = QCheckBox("Gallery view (large thumbnails)")
+        self.gallery_cb.toggled.connect(self._toggle_gallery)
         root.addWidget(self.outputs, 1)
+        root.addWidget(self.gallery_cb)
         self.log = QPlainTextEdit(); self.log.setReadOnly(True)
         root.addWidget(self.log, 1)
         self.prog = QProgressBar(); self.prog.setRange(0, 1); self.prog.setValue(0)
         root.addWidget(self.prog)
         self._outputs: list[Path] = []
         self._on_catalog()
+        self.setAcceptDrops(True)
+
+    # ---- drag and drop ----
+    def dragEnterEvent(self, event) -> None:
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event) -> None:
+        paths = [Path(url.toLocalFile()) for url in event.mimeData().urls() if url.isLocalFile()]
+        self._add_dropped(paths)
+
+    def _add_dropped(self, paths: list[Path]) -> None:
+        for path in paths:
+            if path.is_dir() or path.suffix.lower() in IMG_EXTS:
+                self.inputs.addItem(str(path))
 
     # ---- catalog ----
     def _use_catalog(self) -> None:
@@ -267,10 +336,24 @@ class InferenceWindow(QMainWindow):
         self._worker = InferWorker(
             model, inputs, out, self.arch.currentText(),
             int(self.scale.currentText()), device, tile,
+            skip_existing=self.skip_existing.isChecked(),
         )
         self._worker.line.connect(self.log.appendPlainText)
+        self._worker.progress.connect(self._on_progress)
         self._worker.done.connect(self._on_done)
         self._worker.start()
+
+    def _toggle_gallery(self, on: bool) -> None:
+        from PySide6.QtCore import QSize
+        from PySide6.QtWidgets import QListView
+
+        self.outputs.setViewMode(
+            QListView.ViewMode.IconMode if on else QListView.ViewMode.ListMode)
+        self.outputs.setIconSize(QSize(96, 96) if on else QSize(24, 24))
+
+    def _on_progress(self, done: int, total: int) -> None:
+        self.prog.setRange(0, max(1, total))
+        self.prog.setValue(min(done, total))
 
     def _on_done(self, wrote: int, errors: int, outputs: list[str]) -> None:
         self.run_btn.setEnabled(True)
@@ -278,7 +361,14 @@ class InferenceWindow(QMainWindow):
         self.prog.setValue(1 if wrote else 0)
         self._outputs = [Path(p) for p in outputs]
         self.outputs.clear()
-        self.outputs.addItems([str(p) for p in self._outputs])
+        for p in self._outputs:
+            item = QListWidgetItem(str(p))
+            pm = QPixmap(str(p))
+            if not pm.isNull():
+                item.setIcon(QIcon(pm.scaled(
+                    64, 64, Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation)))
+            self.outputs.addItem(item)
         has_output = bool(self._outputs)
         self.open_out.setEnabled(has_output)
         self.view_ab.setEnabled(has_output)
@@ -310,13 +400,18 @@ class InferenceWindow(QMainWindow):
         if not self._outputs:
             QMessageBox.warning(self, "A/B viewer", "Run inference first.")
             return
-        source = self._first_input()
+        output = self.outputs.currentItem()
+        output_path = Path(output.text()) if output is not None else self._outputs[0]
+        from ..infer import match_input_for_output
+
+        source = match_input_for_output(output_path, self._input_paths()) or self._first_input()
         if source is None:
             QMessageBox.warning(self, "A/B viewer", "No input image is available to compare.")
             return
         from .viewer import ViewerWindow
 
-        output = self._outputs[0] if len(self._outputs) == 1 else self.outputs.currentItem()
-        output_path = Path(output.text()) if output is not None else self._outputs[0]
         self._viewer = ViewerWindow(source, output_path)
         self._viewer.show()
+
+    def _input_paths(self) -> list[Path]:
+        return [Path(self.inputs.item(i).text()) for i in range(self.inputs.count())]

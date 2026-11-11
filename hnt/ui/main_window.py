@@ -16,24 +16,29 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout,
-    QGroupBox, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
+    QApplication, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFormLayout,
+    QGroupBox, QHBoxLayout, QLabel, QListWidget, QMainWindow, QMessageBox,
     QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSpinBox,
     QVBoxLayout, QWidget,
 )
 
 from .. import __version__
 from ..bootstrap import is_setup_complete, runtime_python
+from ..catalog import load_catalog, warmstart_entry
 from ..config_gen import TrainRequest, build_config
+from ..dataset_check import check_dataset
 from ..degradation import DEFAULT_FIDELITY_PRESET, DEFAULT_OTF_PRESET, PRESETS
 from ..diagnostics import help_prompt
 from ..downloader import download_lucid, lucid_hr_dir, lucid_home
 from ..hardware import detect, quiet
 from ..paths import get_paths
 from ..presets import DEFAULT_PROFILE, PROFILES, auto_params, visible_profiles
+from ..runs import list_runs
 from ..train_runner import TrainRunner, looks_like_oom, read_telemetry
 from . import theme
 from .chart import MetricsChart
+from .export import ExportWorker
+from .inference import CatalogWorker
 from .setup_modal import SetupModal
 
 
@@ -77,36 +82,135 @@ class DownloadWorker(QThread):
             self.done.emit("", repr(e))
 
 
-class ExportWorker(QThread):
-    line = Signal(str)
-    done = Signal(str, bool)  # (out_dir, ok)
+class RunsDialog(QDialog):
+    """List training runs and export a chosen checkpoint without the GUI dance."""
 
-    def __init__(self, repo, checkpoint, out_dir, model, scale, *, fp32, fp16, ncnn,
-                 python_exe=None):
-        super().__init__()
-        self.repo, self.checkpoint, self.out_dir = repo, checkpoint, out_dir
-        self.model, self.scale = model, scale
-        self.fp32, self.fp16, self.ncnn = fp32, fp16, ncnn
-        self.python_exe = python_exe
+    export_clicked = Signal(object, object, str, int)  # (checkpoint path, out dir, model, scale)
 
-    def run(self) -> None:
-        from ..exporter import export_checkpoint
+    def __init__(self, repo: Path, out_dir: Path, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Existing training runs")
+        self.resize(560, 360)
+        self._repo, self._out = repo, out_dir
+        self.runs = list_runs(repo)
 
-        try:
-            res = export_checkpoint(
-                self.repo, self.checkpoint, self.out_dir, self.model, self.scale,
-                fp32=self.fp32, fp16=self.fp16, ncnn=self.ncnn,
-                python_exe=self.python_exe,
-            )
-            for err in res.errors:
-                self.line.emit(f"export: {err}")
-            made = [p.name for p in (res.safetensors, res.onnx_fp32, res.onnx_fp16) if p]
-            if made:
-                self.line.emit("exported: " + ", ".join(made))
-            self.done.emit(str(self.out_dir), res.safetensors is not None)
-        except Exception as e:  # noqa: BLE001
-            self.line.emit(f"export failed: {e!r}")
-            self.done.emit("", False)
+        self.runs_list = QListWidget()
+        for r in self.runs:
+            if ck := r.latest_checkpoint:
+                text = f"{r.name} — checkpoint @ {ck.iter} iters ({'EMA' if ck.ema else 'non-EMA'})"
+            else:
+                text = f"{r.name} — no checkpoints yet"
+            self.runs_list.addItem(text)
+        self.runs_list.currentRowChanged.connect(self._on_select)
+
+        self.detail = QLabel(); self.detail.setWordWrap(True)
+        self.iter_spin = QSpinBox()
+        self.export_btn = QPushButton("Export checkpoint…")
+        self.export_btn.clicked.connect(self._export)
+        self.export_btn.setEnabled(False)
+        self.archive_btn = QPushButton("Archive run")
+        self.archive_btn.clicked.connect(self._archive)
+        self.archive_btn.setEnabled(False)
+        self.delete_btn = QPushButton("Delete run…")
+        self.delete_btn.clicked.connect(self._delete)
+        self.delete_btn.setEnabled(False)
+
+        lay = QVBoxLayout(self)
+        lay.addWidget(self.runs_list, 1)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Checkpoint iter:")); row.addWidget(self.iter_spin)
+        row.addWidget(self.export_btn)
+        lay.addLayout(row)
+        row2 = QHBoxLayout()
+        row2.addWidget(self.archive_btn); row2.addWidget(self.delete_btn)
+        row2.addStretch(1)
+        lay.addLayout(row2)
+        lay.addWidget(self.detail)
+        if self.runs:
+            self.runs_list.setCurrentRow(0)
+
+    def _current_run(self):
+        idx = self.runs_list.currentRow()
+        return self.runs[idx] if 0 <= idx < len(self.runs) else None
+
+    def _on_select(self, row: int) -> None:
+        run = self._current_run()
+        self.detail.setText("")
+        has_run = run is not None
+        self.archive_btn.setEnabled(has_run)
+        self.delete_btn.setEnabled(has_run)
+        if run is None or not run.checkpoints:
+            self.iter_spin.setRange(0, 0)
+            self.export_btn.setEnabled(False)
+            if run is not None:
+                self.detail.setText("Nothing to export yet." if not run.resumable
+                                    else "No checkpoints yet — the run can be resumed.")
+            return
+        iters = [c.iter for c in run.checkpoints]
+        self.iter_spin.setRange(min(iters), max(iters))
+        self.iter_spin.setValue(max(iters))
+        if run.resumable:
+            self.detail.setText(f"Resumable from iter {run.states[-1]}.")
+        self.export_btn.setEnabled(True)
+
+    def _reload_runs(self) -> None:
+        self.runs = list_runs(self._repo)
+        self.runs_list.clear()
+        for r in self.runs:
+            if ck := r.latest_checkpoint:
+                text = f"{r.name} — checkpoint @ {ck.iter} iters ({'EMA' if ck.ema else 'non-EMA'})"
+            else:
+                text = f"{r.name} — no checkpoints yet"
+            self.runs_list.addItem(text)
+        if self.runs:
+            self.runs_list.setCurrentRow(0)
+        else:
+            self._on_select(-1)
+
+    def _archive(self) -> None:
+        run = self._current_run()
+        if run is None:
+            return
+        if QMessageBox.question(
+                self, "Archive run",
+                f"Move {run.name} out of the active runs list?\n"
+                "It stays on disk and can be restored by renaming the folder.") \
+                is not QMessageBox.StandardButton.Yes:
+            return
+        from ..runs import archive_run
+
+        new = archive_run(self._repo, run.name)
+        if new:
+            self._reload_runs()
+
+    def _delete(self) -> None:
+        run = self._current_run()
+        if run is None:
+            return
+        if QMessageBox.question(
+                self, "Delete run",
+                f"Permanently delete {run.name}?\n"
+                "Checkpoints and training states are removed. This cannot be undone.") \
+                is not QMessageBox.StandardButton.Yes:
+            return
+        from ..runs import delete_run
+
+        delete_run(self._repo, run.name)
+        self._reload_runs()
+
+    def _export(self) -> None:
+        run = self._current_run()
+        if run is None:
+            return
+        from ..runs import parse_run_name, pick_checkpoint
+
+        ckpt = pick_checkpoint(run, self.iter_spin.value() or None)
+        if ckpt is None:
+            return
+        ms = parse_run_name(run.name)
+        model, scale = ms if ms else ("NERVE", 2)
+        self.export_clicked.emit(ckpt.path, self._out, model, scale)
+        self.accept()
 
 
 class SetupWorker(QThread):
@@ -135,7 +239,7 @@ class MainWindow(QMainWindow):
         self.paths = get_paths()
         self.hw = detect()
         self.py = runtime_python(self.paths)
-        self.setWindowTitle(f"SISR BODY Studio  v{__version__}")
+        self.setWindowTitle(f"BODY Studio  v{__version__}")
         self.resize(1120, 760)
         self.runner = TrainRunner(self.paths.repo, self.paths.logs, python_exe=self.py)
         self.worker: TrainWorker | None = None
@@ -160,7 +264,7 @@ class MainWindow(QMainWindow):
 
         header = QVBoxLayout()
         header.setSpacing(6)
-        title = QLabel("SISR BODY Studio"); title.setObjectName("h1")
+        title = QLabel("BODY Studio"); title.setObjectName("h1")
         subtitle = QLabel("Train your own super-resolution model — no code.")
         subtitle.setObjectName("subtitle")
         header.addWidget(title)
@@ -222,6 +326,13 @@ class MainWindow(QMainWindow):
         form.addRow("Model", self.model)
         form.addRow("Scale", self.scale)
         form.addRow("Profile", self.profile)
+        self.pretrain_cb = QComboBox()
+        self.pretrain_cb.addItem("From scratch — recommended for most users", None)
+        self.pretrain_cb.currentIndexChanged.connect(self._on_pretrain_changed)
+        self.pretrain_lbl = QLabel("")
+        self.pretrain_lbl.setObjectName("muted"); self.pretrain_lbl.setWordWrap(True)
+        form.addRow("Warm start", self.pretrain_cb)
+        form.addRow(self.pretrain_lbl)
         hint = QLabel("Fields outlined in green are the recommended choices for most users.")
         hint.setObjectName("muted"); hint.setWordWrap(True)
         form.addRow(hint)
@@ -275,9 +386,12 @@ class MainWindow(QMainWindow):
         btnrow = QHBoxLayout()
         self.review_btn = QPushButton("Review settings")
         self.review_btn.clicked.connect(self._review)
+        self.runs_btn = QPushButton("Existing runs…")
+        self.runs_btn.clicked.connect(self._show_runs)
         self.train_btn = QPushButton("Train"); self.train_btn.setObjectName("primary")
         self.train_btn.clicked.connect(self._train)
-        btnrow.addWidget(self.review_btn); btnrow.addWidget(self.train_btn)
+        btnrow.addWidget(self.review_btn); btnrow.addWidget(self.runs_btn)
+        btnrow.addWidget(self.train_btn)
         form.addRow(btnrow)
 
         scroll = QScrollArea()
@@ -311,13 +425,18 @@ class MainWindow(QMainWindow):
         self.log = QPlainTextEdit(); self.log.setReadOnly(True)
         dv.addWidget(self.log, 1)
         stop = QPushButton("Stop"); stop.clicked.connect(self._stop)
+        self.tour_btn = QPushButton("Quick tour"); self.tour_btn.clicked.connect(self._show_tour)
         helpbtn = QPushButton("Get help / report"); helpbtn.clicked.connect(lambda: self._help("manual"))
         updbtn = QPushButton("Check updates"); updbtn.clicked.connect(self._check_updates)
         clnbtn = QPushButton("Clean up disk"); clnbtn.clicked.connect(self._cleanup)
         setupbtn = QPushButton("Set up / repair"); setupbtn.clicked.connect(self._setup_env)
         inferbtn = QPushButton("Inference…"); inferbtn.clicked.connect(self._open_inference)
-        row = QHBoxLayout(); row.addWidget(stop); row.addWidget(helpbtn); row.addWidget(updbtn)
-        row.addWidget(clnbtn); row.addWidget(setupbtn); row.addWidget(inferbtn); dv.addLayout(row)
+        videobtn = QPushButton("Video…"); videobtn.clicked.connect(self._open_video)
+        expbtn = QPushButton("Export / Convert…"); expbtn.clicked.connect(self._open_export)
+        row = QHBoxLayout(); row.addWidget(stop); row.addWidget(self.tour_btn)
+        row.addWidget(helpbtn); row.addWidget(updbtn)
+        row.addWidget(clnbtn); row.addWidget(setupbtn); row.addWidget(inferbtn)
+        row.addWidget(videobtn); row.addWidget(expbtn); dv.addLayout(row)
         cols.addWidget(dash, 4)
 
         self.timer = QTimer(self); self.timer.setInterval(1000); self.timer.timeout.connect(self._tick)
@@ -339,6 +458,7 @@ class MainWindow(QMainWindow):
         self.hr._edit.textChanged.connect(self._refresh_validity)  # type: ignore[attr-defined]
         self.lr._edit.textChanged.connect(self._refresh_validity)  # type: ignore[attr-defined]
         self._refresh_validity()
+        self._refresh_pretrain()
         self._refresh_lucid_button()
 
     def _hw_chips(self) -> list[str]:
@@ -498,6 +618,90 @@ class MainWindow(QMainWindow):
         self._refresh_autoparams()
         self._refresh_recommended()
         self._update_data_mode_availability()
+        self._refresh_pretrain()
+
+    def _refresh_pretrain(self) -> None:
+        """Offer a catalog warm-start matching the chosen model and scale."""
+        try:
+            entries = load_catalog()
+        except Exception:  # noqa: BLE001 — catalog is optional; scratch training always works
+            entries = []
+        e = warmstart_entry(entries, str(self.model.currentData()), int(self.scale.currentData()))
+        want = e.id if e else None
+        if getattr(self, "_pretrain_entry", None) == want:
+            return  # keep state (and running downloads) across unrelated changes
+        self._pretrain_entry = want
+        self.pretrain_cb.blockSignals(True)
+        while self.pretrain_cb.count() > 1:
+            self.pretrain_cb.removeItem(1)
+        self.pretrain_cb.setCurrentIndex(0)
+        self.pretrain_cb.blockSignals(False)
+        self._warmstart_path = None
+        self.pretrain_lbl.setText("")
+        if e is not None:
+            self.pretrain_cb.addItem(f"{e.name} ({e.params:,} params)", e.id)
+        self._refresh_validity()
+
+    def _pretrain_cache(self, entry_id: str) -> Path:
+        return self.paths.data / "models" / entry_id
+
+    def _cached_pretrain(self, entry_id: str) -> Path | None:
+        cache = self._pretrain_cache(entry_id)
+        if not cache.is_dir():
+            return None
+        return next((p for p in sorted(cache.glob("**/*.safetensors")) if p.is_file()), None)
+
+    def _on_pretrain_changed(self, *_: object) -> None:
+        eid = self.pretrain_cb.currentData()
+        if eid is None:
+            self._warmstart_path = None
+            self.pretrain_lbl.setText("")
+            self._refresh_validity()
+            return
+        cached = self._cached_pretrain(eid)
+        if cached:
+            self._warmstart_path = cached
+            self.pretrain_lbl.setText(f"Ready — starting from {cached.name}")
+        else:
+            self._warmstart_path = None
+            self.pretrain_lbl.setText("Will download when you press Train (one time).")
+        self._refresh_validity()
+
+    def _start_pretrain_download(self) -> bool:
+        """Kick off a warm-start download; True when training must wait for it."""
+        eid = self.pretrain_cb.currentData()
+        if eid is None:
+            return False
+        if getattr(self, "_pretrain_worker", None) is not None and self._pretrain_worker.isRunning():
+            return True  # already fetching
+        entries = load_catalog()
+        e = next((x for x in entries if x.id == eid), None)
+        if e is None:
+            self._warmstart_path = None
+            return False
+        self.train_btn.setEnabled(False)
+        self.status.setText("downloading pretrained weights…")
+        self.guide.setText(f"Downloading {e.name} to start from — this runs once…")
+        self.log.appendPlainText(f"downloading warm-start model → {self._pretrain_cache(eid)}")
+        self._pretrain_worker = CatalogWorker(e, self._pretrain_cache(eid))
+        self._pretrain_worker.done.connect(self._on_pretrain_downloaded)
+        self._pretrain_worker.start()
+        return True
+
+    def _on_pretrain_downloaded(self, path: str, error: str) -> None:
+        if error:
+            self.log.appendPlainText(f"ERROR: {error}")
+            self.status.setText("pretrain download failed — training from scratch")
+            self.pretrain_cb.blockSignals(True)
+            self.pretrain_cb.setCurrentIndex(0)
+            self.pretrain_cb.blockSignals(False)
+            self._warmstart_path = None
+        else:
+            self._warmstart_path = Path(path)
+            self.pretrain_lbl.setText(f"Ready — starting from {Path(path).name}")
+            self.log.appendPlainText(f"warm-start model ready → {path}")
+            QTimer.singleShot(0, self._train)  # continue the Train press that started this
+        self._refresh_validity()
 
     def _update_data_mode_availability(self) -> None:
         """PULSE models are trained from paired LR/HR data; keep that path obvious."""
@@ -574,6 +778,7 @@ class MainWindow(QMainWindow):
             val_perceptual_metrics=self.perceptual.isChecked(),
             val_tile_size=self.val_tile.value(),
             name=f"{self.model.currentData()}_{self.scale.currentData()}x_run",
+            pretrain=str(self._warmstart_path) if getattr(self, "_warmstart_path", None) else None,
         )
 
     def _review(self) -> None:
@@ -590,6 +795,29 @@ class MainWindow(QMainWindow):
                f"Iters: {req.iters}\nPretrain: {req.pretrain or 'from scratch'}\n"
                f"Config data.type: {tds.get('type')}")
         QMessageBox.information(self, "Review settings", msg)
+
+    def _show_runs(self) -> None:
+        out_dir = Path(self.out._edit.text()) if self.out._edit.text() \
+            else self.paths.data / "outputs"  # type: ignore[attr-defined]
+        dlg = RunsDialog(repo=self.paths.repo, out_dir=out_dir, parent=self)
+        dlg.export_clicked.connect(self._export_from_runs)
+        dlg.exec()
+
+    def _export_from_runs(self, ckpt_path, out_dir, model: str, scale: int) -> None:
+        self._exporting = True
+        self._refresh_validity()
+        self.prog.setRange(0, 0)  # busy while converting/exporting
+        self.status.setText(f"exporting {Path(ckpt_path).name} → {out_dir} …")
+        self.guide.setText("Exporting safetensors / ONNX — this can take a minute…")
+        self.log.appendPlainText(f"exporting {ckpt_path} → {out_dir}")
+        self.export_worker = ExportWorker(
+            self.paths.repo, Path(ckpt_path), Path(out_dir), model, scale,
+            fp32=self.e_onnx32.isChecked(), fp16=self.e_onnx16.isChecked(),
+            ncnn=self.e_ncnn.isChecked(), python_exe=self.py,
+        )
+        self.export_worker.line.connect(self.log.appendPlainText)
+        self.export_worker.done.connect(self._on_export_done)
+        self.export_worker.start()
 
     def _train(self, _retry: bool = False) -> None:
         # The Python path can change after a successful setup, so re-resolve it here.
@@ -616,6 +844,17 @@ class MainWindow(QMainWindow):
             return self._help("setup", "No HR folder selected.")
         if req.data_mode == "PAIRED" and not req.lr_dir:
             return self._help("setup", "Paired mode needs an LR folder (or switch to on-the-fly).")
+        if not _retry:
+            rep = check_dataset(
+                req.hr_dir, req.lr_dir if req.data_mode == "PAIRED" else "", req.scale)
+            if not rep.ok:
+                self.status.setText("dataset problem")
+                self.guide.setText("The training folders have a problem — see Get help.")
+                return self._help("dataset check", rep.error_text())
+            if self.pretrain_cb.currentData() is not None \
+                    and getattr(self, "_warmstart_path", None) is None \
+                    and self._start_pretrain_download():
+                return  # Train continues automatically once the weights arrive
         try:
             cfg = build_config(req, self.paths.repo)
         except Exception as e:  # noqa: BLE001
@@ -945,6 +1184,27 @@ class MainWindow(QMainWindow):
         self._inferwin.show()
         self._inferwin.raise_()
 
+    def _open_video(self) -> None:
+        from .video import VideoWindow
+
+        if getattr(self, "_videowin", None) is None:
+            self._videowin = VideoWindow()
+        self._videowin.show()
+        self._videowin.raise_()
+
+    def _open_export(self) -> None:
+        from .export import ExportWindow
+
+        if getattr(self, "_exportwin", None) is None:
+            self._exportwin = ExportWindow()
+        self._exportwin.show()
+        self._exportwin.raise_()
+
+    def _show_tour(self) -> None:
+        from .tour import show_tour
+
+        show_tour(self)
+
     def closeEvent(self, event) -> None:
         """Never lose a long run to an accidental close."""
         running = (self._training or self._exporting
@@ -997,6 +1257,11 @@ def run() -> int:
     app.setStyleSheet(theme.QSS)
     w = MainWindow()
     w.show()
+    if not is_setup_complete(paths):
+        from .tour import marker_path, should_show, show_tour
+
+        if should_show(marker_path()):
+            show_tour(w)  # first run only — the marker file keeps it a one-time thing
     rc = app.exec()
     if lock is not None:
         lock.unlock()

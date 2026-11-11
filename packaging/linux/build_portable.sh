@@ -16,7 +16,7 @@ fi
 export QT_QPA_PLATFORM=offscreen
 
 "$PY" -m PyInstaller --noconfirm --clean --onedir --windowed \
-  --name HeartNerveTrainer \
+  --name BodyStudio \
   --exclude-module pyqtgraph.examples --exclude-module pyqtgraph.opengl \
   --exclude-module torch --exclude-module torchvision \
   --exclude-module onnx --exclude-module onnxruntime \
@@ -24,7 +24,7 @@ export QT_QPA_PLATFORM=offscreen
   --exclude-module pnnx --exclude-module ncnn \
   app.py
 
-DIST="dist/HeartNerveTrainer"
+DIST="dist/BodyStudio"
 rm -rf "$DIST/hnt" "$DIST/trainer" "$DIST/uv"
 cp -r hnt "$DIST/hnt"
 cp -r packaging/vendor/trainer "$DIST/trainer"
@@ -41,5 +41,5 @@ fi
 cp "$UV_BIN" "$DIST/uv"
 chmod +x "$DIST/uv"
 
-tar -czf "dist/HeartNerveTrainer-linux-x86_64.tar.gz" -C dist HeartNerveTrainer
-echo "built dist/HeartNerveTrainer-linux-x86_64.tar.gz"
+tar -czf "dist/BodyStudio-linux-x86_64.tar.gz" -C dist BodyStudio
+echo "built dist/BodyStudio-linux-x86_64.tar.gz"

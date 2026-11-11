@@ -1,4 +1,4 @@
-# Packaging notes (HEART / NERVE Trainer)
+# Packaging notes (BODY Studio)
 
 The app is a thin PySide6 shell + a bundled copy of `traiNNer-redux` + a bundled
 `uv` binary. On first run it creates an isolated venv and installs pinned deps —
@@ -13,7 +13,7 @@ the user's system is never modified.
 ## Build (local)
 ```bash
 pip install pyinstaller -e .
-pyinstaller --noconfirm --windowed --name HeartNerveTrainer app.py   # Windows: drop --windowed for console debug
+pyinstaller --noconfirm --windowed --name BodyStudio app.py   # Windows: drop --windowed for console debug
 # Windows:
 iscc packaging/windows/installer.iss
 # Linux:

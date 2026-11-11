@@ -30,7 +30,7 @@ class SetupModal(QDialog):
     def __init__(self, paths: Path) -> None:
         super().__init__()
         self.paths = paths
-        self.setWindowTitle("Training dependencies — SISR BODY Studio")
+        self.setWindowTitle("Training dependencies — BODY Studio")
         self.resize(640, 420)
 
         root = QVBoxLayout(self)

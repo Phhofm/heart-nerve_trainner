@@ -7,12 +7,11 @@ ONNX / TensorRT / ncnn runners are a later addition.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-
-from .paths import find_repo
 
 IMG_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
 
@@ -113,6 +112,44 @@ def _save_image(arr: np.ndarray, path: Path) -> None:
     Image.fromarray(arr).save(path)
 
 
+def _destination_for(
+    roots: list[Path],
+    src: Path,
+    out_dir: Path,
+    suffix: str,
+) -> Path:
+    """Resolve an output path that preserves useful folder structure."""
+    rel: Path | None = None
+    for root in roots:
+        if src.is_relative_to(root):
+            rel = src.relative_to(root)
+            break
+    if rel is None:
+        rel = Path(src.name)
+    return out_dir / rel.parent / f"{src.stem}_{suffix}.png"
+
+
+def match_input_for_output(output: str | Path, inputs: list[str | Path]) -> Path | None:
+    """Find the input image an output was made from, by filename stem.
+
+    Outputs are named ``{stem}_{suffix}.png``; inputs are files and/or folders.
+    Falls back to None when nothing matches (the caller picks a sane default).
+    """
+    out_stem = Path(output).stem.lower()
+    for item in inputs:
+        p = Path(item)
+        if p.is_file():
+            cands = [p] if p.suffix.lower() in IMG_EXTS else []
+        elif p.is_dir():
+            cands = [f for f in sorted(p.rglob("*")) if f.suffix.lower() in IMG_EXTS]
+        else:
+            cands = []
+        for c in cands:
+            if c.stem.lower() == out_stem or out_stem.startswith(c.stem.lower() + "_"):
+                return c
+    return None
+
+
 def infer_paths(
     model_path: str | Path,
     inputs: list[str | Path],
@@ -123,8 +160,14 @@ def infer_paths(
     tile: int = 0,
     overlap: int = 16,
     suffix: str | None = None,
+    skip_existing: bool = False,
+    on_progress: Callable[[int, int, Path], None] | None = None,
 ) -> InferResult:
-    """Run inference on files and/or folders; outputs go to ``out_dir``."""
+    """Run inference on files and/or folders; outputs go to ``out_dir``.
+
+    ``on_progress(done, total, path)`` fires after each file is processed
+    (including files skipped by ``skip_existing``).
+    """
     net = load_model(model_path, arch, scale, device)
     model_stem = Path(model_path).stem
     suffix = suffix or model_stem
@@ -133,22 +176,28 @@ def infer_paths(
     errors: list[str] = []
 
     files: list[Path] = []
+    roots: list[Path] = []
     for item in inputs:
         p = Path(item)
         if p.is_dir():
+            roots.append(p)
             files += [f for f in sorted(p.rglob("*")) if f.suffix.lower() in IMG_EXTS]
         elif p.suffix.lower() in IMG_EXTS:
+            roots.append(p)
             files.append(p)
 
-    for f in files:
+    for done, f in enumerate(files, 1):
         try:
-            img = _load_image(f)
-            tile_px = _choose_tile(img.shape[0], img.shape[1], tile)
-            res = (_run_tiled(net, img, scale, device, tile_px, overlap) if tile_px
-                   else _run_full(net, img, scale, device))
-            dst = out_dir / f"{f.stem}_{suffix}.png"
-            _save_image(res, dst)
-            outputs.append(dst)
+            dst = _destination_for(roots, f, out_dir, suffix)
+            if not (skip_existing and dst.exists()):
+                img = _load_image(f)
+                tile_px = _choose_tile(img.shape[0], img.shape[1], tile)
+                res = (_run_tiled(net, img, scale, device, tile_px, overlap) if tile_px
+                       else _run_full(net, img, scale, device))
+                _save_image(res, dst)
+                outputs.append(dst)
         except Exception as e:  # noqa: BLE001
             errors.append(f"{f.name}: {e}")
+        if on_progress:
+            on_progress(done, len(files), f)
     return InferResult(outputs, errors)
