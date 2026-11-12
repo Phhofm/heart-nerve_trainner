@@ -13,6 +13,7 @@ from hnt.video import (
     build_decode_args,
     build_encode_args,
     infer_video,
+    infer_video_temporal,
     parse_video_info,
 )
 
@@ -288,3 +289,160 @@ def test_cli_video_command_passes_args(monkeypatch, tmp_path, capsys):
     assert captured["deinterlace"] is True
     assert captured["overwrite"] is True
     assert "output" in capsys.readouterr().out
+
+
+def _flat(value: int) -> np.ndarray:
+    return np.full((2, 2, 3), value, dtype=np.uint8)
+
+
+def _fake_decoders(*streams: bytes):
+    """decoder_factory yielding one FakeProcess per decode pass."""
+    fakes = [FakeProcess(data) for data in streams]
+    calls = iter(fakes)
+    return lambda cmd: next(calls), fakes
+
+
+def test_infer_video_temporal_windows_never_cross_cuts(tmp_path: Path):
+    input_path = tmp_path / "in.mp4"
+    output_path = tmp_path / "out.mp4"
+    input_path.write_bytes(b"stub")
+
+    # hard cut between frames 2 and 3 (flat colors, diff = 1.0)
+    frames = [_flat(10), _flat(10), _flat(10), _flat(200), _flat(200), _flat(200)]
+    raw = b"".join(f.tobytes() for f in frames)
+    factory, fakes = _fake_decoders(raw, raw)  # two passes: scan + process
+    encoder = FakeProcess()
+
+    windows_seen: list[tuple[int, int]] = []
+    fallbacks: list[int] = []
+
+    def window_fn(window: list[np.ndarray], center: int) -> np.ndarray:
+        windows_seen.append((len(window), center))
+        return window[1] + 1  # center frame, marked
+
+    def frame_fn(frame: np.ndarray, index: int) -> np.ndarray:
+        fallbacks.append(index)
+        return frame + 2  # fallback, marked differently
+
+    result = infer_video_temporal(
+        input_path,
+        output_path,
+        window_fn=window_fn,
+        frame_fn=frame_fn,
+        clip_size=3,
+        info=_info(total_frames=6),
+        decoder_factory=factory,
+        encoder_factory=lambda cmd: encoder,
+    )
+
+    assert result.frames == 6
+    # full windows only for centers fully inside a scene (half=1): 1 and 4
+    assert windows_seen == [(3, 1), (3, 4)]
+    # scene-boundary frames fall back to single-frame processing
+    assert fallbacks == [0, 2, 3, 5]
+    # output order is frame order: fallback(0), win(1), fallback(2),
+    # fallback(3), win(4), fallback(5)
+    written = encoder.stdin.getvalue()
+    expected = b"".join(
+        [
+            (_flat(10) + 2).tobytes(),
+            (_flat(10) + 1).tobytes(),
+            (_flat(10) + 2).tobytes(),
+            (_flat(200) + 2).tobytes(),
+            (_flat(200) + 1).tobytes(),
+            (_flat(200) + 2).tobytes(),
+        ]
+    )
+    assert written == expected
+    assert fakes[0].waited is True
+    assert fakes[1].waited is True
+    assert encoder.waited is True
+
+
+def test_infer_video_temporal_requires_window_fn(tmp_path: Path):
+    input_path = tmp_path / "in.mp4"
+    input_path.write_bytes(b"stub")
+    with pytest.raises(ValueError):
+        infer_video_temporal(input_path, tmp_path / "out.mp4", info=_info())
+
+
+def test_infer_video_temporal_rejects_bad_output_shape(tmp_path: Path):
+    input_path = tmp_path / "in.mp4"
+    output_path = tmp_path / "out.mp4"
+    input_path.write_bytes(b"stub")
+    frames = [_flat(10)] * 4
+    raw = b"".join(f.tobytes() for f in frames)
+    factory, _ = _fake_decoders(raw, raw)
+
+    def window_fn(window: list[np.ndarray], center: int) -> np.ndarray:
+        return np.zeros((3, 3, 3), dtype=np.uint8)
+
+    with pytest.raises(ValueError):
+        infer_video_temporal(
+            input_path,
+            output_path,
+            window_fn=window_fn,
+            frame_fn=lambda frame, _i: frame,
+            clip_size=3,
+            info=_info(total_frames=4),
+            decoder_factory=factory,
+            encoder_factory=lambda cmd: FakeProcess(),
+        )
+
+
+def test_infer_video_temporal_out_scale_encodes_scaled(tmp_path: Path):
+    input_path = tmp_path / "in.mp4"
+    output_path = tmp_path / "out.mp4"
+    input_path.write_bytes(b"stub")
+
+    # 1x1 frames -> 2x2 output at out_scale=2; single scene
+    frames = [np.full((1, 1, 3), 10, dtype=np.uint8)] * 4
+    raw = b"".join(f.tobytes() for f in frames)
+    factory, _ = _fake_decoders(raw, raw)
+    encoder = FakeProcess()
+
+    def window_fn(window: list[np.ndarray], center: int) -> np.ndarray:
+        return np.full((2, 2, 3), 7, dtype=np.uint8)
+
+    result = infer_video_temporal(
+        input_path,
+        output_path,
+        window_fn=window_fn,
+        frame_fn=lambda frame, _i: np.full((2, 2, 3), 9, dtype=np.uint8),
+        clip_size=3,
+        out_scale=2,
+        info=_info(width=1, height=1, has_audio=False, total_frames=4),
+        decoder_factory=factory,
+        encoder_factory=lambda cmd: encoder,
+    )
+    assert result.frames == 4
+    assert result.info.width == 2 and result.info.height == 2
+    # decode stays 1x1; the encode args carry the scaled size
+    # order: fallback(0), win(1), win(2), fallback(3)
+    assert encoder.stdin.getvalue() == b"".join(
+        [np.full((2, 2, 3), 9, np.uint8).tobytes(),
+         np.full((2, 2, 3), 7, np.uint8).tobytes(),
+         np.full((2, 2, 3), 7, np.uint8).tobytes(),
+         np.full((2, 2, 3), 9, np.uint8).tobytes()]
+    )
+
+
+def test_infer_video_temporal_out_scale_requires_fallback_fn(tmp_path: Path):
+    input_path = tmp_path / "in.mp4"
+    output_path = tmp_path / "out.mp4"
+    input_path.write_bytes(b"stub")
+    # frames with a cut: fallback frames exist but frame_fn is None
+    frames = [_flat(10), _flat(10), _flat(10), _flat(200), _flat(200), _flat(200)]
+    raw = b"".join(f.tobytes() for f in frames)
+    factory, _ = _fake_decoders(raw, raw)
+    with pytest.raises(ValueError):
+        infer_video_temporal(
+            input_path,
+            output_path,
+            window_fn=lambda w, c: np.zeros((2, 2, 3), dtype=np.uint8),
+            clip_size=3,
+            out_scale=2,
+            info=_info(total_frames=6),
+            decoder_factory=factory,
+            encoder_factory=lambda cmd: FakeProcess(),
+        )

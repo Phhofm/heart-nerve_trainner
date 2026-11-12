@@ -69,6 +69,16 @@ Remote: `https://github.com/Phhofm/heart-nerve_trainner`
   - optional ffmpeg deinterlacing;
   - audio-preserving re-encode;
   - metadata mapping from the source video.
+- New `hnt/temporal.py` + `hnt.video.infer_video_temporal` add cut-safe
+  temporal inference for T-NERVE (2026-11-12):
+  - two-pass decode (downscaled scene-cut scan, then full-res windows);
+  - windows never span scene cuts; scene-boundary frames fall back to
+    single-frame processing (same semantics as the research repo's
+    cut-safe evaluation);
+  - `out_scale` supports 2x SR output (encoded video is 2x the input);
+  - frame-synced by construction: output frame order matches input;
+  - verified on the extreme-motion stress clip with the released T-NERVE
+    weights (1041 frames -> 1920x1412, model windows + fallbacks).
 - `hnt.cli` gained a `video` subcommand with model/arch/scale/device/tiling,
   codec/CRF, deinterlace, overwrite, and progress reporting.
 - New `hnt/ui/video.py` adds a dedicated video inference window:

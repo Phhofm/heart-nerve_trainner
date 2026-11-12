@@ -8,6 +8,7 @@ while preserving audio when present.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import subprocess
 from collections.abc import Callable
@@ -18,6 +19,7 @@ from pathlib import Path
 import numpy as np
 
 from .infer import _choose_tile, _run_full, _run_tiled, load_model
+from .temporal import detect_cuts_scaled, plan_windows
 
 
 @dataclass(frozen=True)
@@ -43,6 +45,7 @@ class VideoResult:
 
 
 FrameFn = Callable[[np.ndarray, int], np.ndarray]
+WindowFn = Callable[[list[np.ndarray], int], np.ndarray]
 ProgressFn = Callable[[int, int | None], None]
 ProcessFactory = Callable[[list[str]], object]
 
@@ -376,3 +379,170 @@ def infer_video(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     return VideoResult(output=output_path, frames=frames, info=info)
+
+
+
+
+def _read_all_frames(decoder, frame_bytes: int, info: VideoInfo) -> list[np.ndarray]:
+    frames: list[np.ndarray] = []
+    while True:
+        raw = _read_exact(decoder.stdout, frame_bytes)
+        if len(raw) < frame_bytes:
+            break
+        frames.append(
+            np.frombuffer(raw, dtype=np.uint8).reshape(info.height, info.width, 3)
+        )
+    return frames
+
+
+def _decode_pass(make_decoder: ProcessFactory, decode_cmd: list[str],
+                 frame_bytes: int, info: VideoInfo) -> list[np.ndarray]:
+    decoder = make_decoder(decode_cmd)
+    try:
+        return _read_all_frames(decoder, frame_bytes, info)
+    finally:
+        decoder.stdout.close()
+        _finish_process("decoder", decoder)
+
+
+def infer_video_temporal(
+    input_path: str | Path,
+    output_path: str | Path,
+    *,
+    window_fn: WindowFn | None = None,
+    frame_fn: FrameFn | None = None,
+    clip_size: int = 13,
+    cut_threshold: float = 0.35,
+    scan_long_side: int = 320,
+    out_scale: int = 1,
+    info: VideoInfo | None = None,
+    decoder_factory: ProcessFactory | None = None,
+    encoder_factory: ProcessFactory | None = None,
+    on_progress: ProgressFn | None = None,
+    overwrite: bool = False,
+) -> VideoResult:
+    """Enhance a video with a temporal (windowed) model, cut-safe by design.
+
+    Two decode passes: a downscaled scan detects scene cuts, then the full
+    pass processes windows. A frame is processed with ``window_fn(window,
+    center_index)`` only when its whole ``clip_size`` window fits inside
+    its scene (windows never span cuts); otherwise ``frame_fn`` handles the
+    single frame, exactly like the research-repo cut-safe semantics. Output
+    frame order always matches input order.
+    """
+    input_path = Path(input_path)
+    output_path = Path(output_path)
+    if input_path == output_path:
+        raise ValueError("input and output paths must differ")
+    if not input_path.exists():
+        raise FileNotFoundError(input_path)
+    if not overwrite and output_path.exists():
+        raise FileExistsError(output_path)
+    if window_fn is None:
+        raise ValueError("window_fn is required for temporal inference")
+    if clip_size < 1 or clip_size % 2 == 0:
+        raise ValueError("clip_size must be a positive odd number")
+    if out_scale < 1:
+        raise ValueError("out_scale must be >= 1")
+
+    src_info = info or probe_video(input_path)
+    out_info = dataclasses.replace(
+        src_info,
+        width=src_info.width * out_scale,
+        height=src_info.height * out_scale,
+    )
+    expected_shape = (out_info.height, out_info.width, 3)
+    make_decoder = decoder_factory or _start_process
+    make_encoder = encoder_factory or _start_process
+    frame_bytes = src_info.width * src_info.height * 3
+    half = clip_size // 2
+
+    # pass 1: downscaled scene-cut scan
+    scan_cmd = build_decode_args(src_info, input_path)
+    scan_frames = _decode_pass(make_decoder, scan_cmd, frame_bytes, src_info)
+    cuts = detect_cuts_scaled(scan_frames, cut_threshold, scan_long_side)
+    plan = plan_windows(len(scan_frames), cuts, clip_size)
+    del scan_frames
+
+    # pass 2: full-res processing with a rolling window buffer
+    decode_cmd = build_decode_args(src_info, input_path)
+    encode_cmd = build_encode_args(out_info, output_path, input_path,
+                                   overwrite=overwrite)
+    decoder = make_decoder(decode_cmd)
+    encoder = make_encoder(encode_cmd)
+    emitted = 0
+    next_to_emit = 0
+    completed: dict[int, np.ndarray] = {}
+    buf: list[tuple[int, np.ndarray]] = []
+
+    def emit_ready() -> None:
+        nonlocal emitted, next_to_emit
+        while next_to_emit in completed:
+            out = completed.pop(next_to_emit)
+            encoder.stdin.write(
+                np.ascontiguousarray(out, dtype=np.uint8).tobytes()
+            )
+            emitted += 1
+            if on_progress:
+                on_progress(emitted, len(plan))
+            next_to_emit += 1
+
+    try:
+        while True:
+            raw = _read_exact(decoder.stdout, frame_bytes)
+            if len(raw) < frame_bytes:
+                break
+            frame = np.frombuffer(raw, dtype=np.uint8).reshape(
+                src_info.height, src_info.width, 3
+            ).copy()
+            j = buf[-1][0] + 1 if buf else 0
+            buf.append((j, frame))
+            if len(buf) > clip_size:
+                buf.pop(0)
+
+            if plan[j] is None and frame_fn is not None:
+                out = frame_fn(frame, j)
+                if out.shape != expected_shape:
+                    raise ValueError(
+                        f"frame_fn returned shape {out.shape}, "
+                        f"expected {expected_shape}"
+                    )
+                completed[j] = out
+            elif plan[j] is None:
+                if out_scale != 1:
+                    raise ValueError(
+                        "frame_fn is required for out_scale > 1 fallback "
+                        f"frames (frame {j} sits on a scene boundary)"
+                    )
+                completed[j] = frame  # passthrough fallback
+
+            # a window center completes exactly when its last frame arrives
+            c = j - half
+            if c >= 0 and plan[c] is not None:
+                lo, hi = c - half, c + half
+                window = [f for idx, f in buf if lo <= idx <= hi]
+                center_frame = next(f for idx, f in buf if idx == c)
+                out = window_fn(window, c)
+                if out.shape != expected_shape:
+                    raise ValueError(
+                        f"window_fn returned shape {out.shape}, "
+                        f"expected {expected_shape}"
+                    )
+                completed[c] = out
+            emit_ready()
+        emit_ready()
+        encoder.stdin.close()
+        _finish_process("encoder", encoder)
+        decoder.stdout.close()
+        _finish_process("decoder", decoder)
+    except Exception:
+        _stop_process(decoder)
+        _stop_process(encoder)
+        raise
+
+    if emitted != len(plan):
+        raise RuntimeError(
+            f"temporal pipeline emitted {emitted} frames, expected {len(plan)}"
+        )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    return VideoResult(output=output_path, frames=emitted, info=out_info)
