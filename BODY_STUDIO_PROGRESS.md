@@ -294,6 +294,10 @@ network + variant automatically (defaults), overridable before running.
   -> D-NERVE perceptual (recommended)") with one-click override.
 - **Install**: portable packaging (PyInstaller or similar) before any
   public release.
+- **UX TESTING POLICY (user directive 2026-11-14)**: every UI change gets
+  exercised like a user would — run the app, click through flows, take
+  screenshots, judge intuitiveness/cleanliness/modern look — screenshots
+  attached to progress notes, not assumed from code.
 - **Train UX**: prepare-dataset-from-video button (design exists),
   recipe presets instead of YAML editing, guided first-training flow.
 - **Model zoo prerequisite**: routing lands after the zoo is complete
