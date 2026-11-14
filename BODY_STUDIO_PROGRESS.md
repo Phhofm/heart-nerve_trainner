@@ -278,3 +278,27 @@ to CI.
 - Multi-GPU orchestration.
 - Fine-grained custom YAML editing.
 - Automated model publishing.
+
+
+## Roadmap: beginner-friendly auto-routing (vision, 2026-11-14)
+
+User vision: BODY Studio as the beginner-friendly front-end for the whole
+BODY family — select an mp4/image, the app analyzes input and picks the
+network + variant automatically (defaults), overridable before running.
+
+- **Auto-routing v1 (heuristics)**: image vs video -> NERVE/HEART vs
+  T-NERVE; damage estimate (blockiness/noise heuristics) -> fidelity tier
+  vs D-NERVE. Severity-mixed models keep this simple (one model covers
+  light->heavy, so routing is family-level, not severity-level).
+- **Transparency**: show the detection result ("720p, heavy compression
+  -> D-NERVE perceptual (recommended)") with one-click override.
+- **Install**: portable packaging (PyInstaller or similar) before any
+  public release.
+- **Train UX**: prepare-dataset-from-video button (design exists),
+  recipe presets instead of YAML editing, guided first-training flow.
+- **Model zoo prerequisite**: routing lands after the zoo is complete
+  (T-NERVE natural + severity-mixed, D-NERVE natural) — do not build
+  against a changing lineup.
+- **Inference toggle**: wavelet colorfix ("keep colors faithful to
+  input") as a per-run option; default on for T-NERVE, off for D-NERVE
+  heavy damage.
