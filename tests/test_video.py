@@ -446,3 +446,49 @@ def test_infer_video_temporal_out_scale_requires_fallback_fn(tmp_path: Path):
             decoder_factory=factory,
             encoder_factory=lambda cmd: FakeProcess(),
         )
+
+
+def test_infer_video_temporal_blend_toward_static_on_motion(tmp_path: Path):
+    input_path = tmp_path / "inb.mp4"
+    output_path = tmp_path / "outb.mp4"
+    input_path.write_bytes(b"stub")
+
+    frames = [_flat(10), _flat(10), _flat(10), _flat(200), _flat(200), _flat(200)]
+    raw = b"".join(f.tobytes() for f in frames)
+    factory, fakes = _fake_decoders(raw, raw)
+    encoder = FakeProcess()
+
+    def window_fn(window: list[np.ndarray], center: int) -> np.ndarray:
+        return window[1] + 1
+
+    def frame_fn(frame: np.ndarray, index: int) -> np.ndarray:
+        return frame + 2
+
+    def static_fn(frame: np.ndarray, index: int) -> np.ndarray:
+        return frame.copy()  # single-frame result = the raw frame
+
+    result = infer_video_temporal(
+        input_path,
+        output_path,
+        window_fn=window_fn,
+        frame_fn=frame_fn,
+        static_fn=static_fn,
+        blend=(0.0, 1.0),  # w == luma diff directly
+        clip_size=3,
+        info=_info(total_frames=6),
+        decoder_factory=factory,
+        encoder_factory=lambda cmd: encoder,
+    )
+
+    assert result.frames == 6
+    written = encoder.stdin.getvalue()
+    got = [bytes(written[i:i + 12]) for i in range(0, len(written), 12)]
+    vals = [g[0] for g in got]
+    # frame 0: w=0 (no prev) -> fallback 12; frame 1: motion 0 -> temporal 11;
+    # frame 3: motion 190/255=0.745 -> blended 202*0.255+200*0.745 ~= 201
+    assert vals[0] == 12
+    assert vals[1] == 11
+    assert vals[2] == 12
+    assert 200 < vals[3] < 202  # blend landed between temporal(202) and static(200)
+    assert vals[4] == 201
+    assert vals[5] == 202

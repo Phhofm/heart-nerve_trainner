@@ -20,6 +20,7 @@ import numpy as np
 
 from .infer import _choose_tile, _run_full, _run_tiled, load_model
 from .temporal import detect_cuts_scaled, plan_windows
+from .blend import blend_frames, luma_diff, motion_weight
 
 
 @dataclass(frozen=True)
@@ -411,6 +412,8 @@ def infer_video_temporal(
     *,
     window_fn: WindowFn | None = None,
     frame_fn: FrameFn | None = None,
+    static_fn: FrameFn | None = None,
+    blend: tuple[float, float] | None = None,
     clip_size: int = 13,
     cut_threshold: float = 0.35,
     scan_long_side: int = 320,
@@ -429,6 +432,12 @@ def infer_video_temporal(
     its scene (windows never span cuts); otherwise ``frame_fn`` handles the
     single frame, exactly like the research-repo cut-safe semantics. Output
     frame order always matches input order.
+
+    With ``blend=(m0, m1)`` and ``static_fn`` set, every frame's result is
+    blended toward ``static_fn(frame, index)`` (a single-frame model run)
+    by a ramp driven by the inter-frame luma difference: calm frames keep
+    the temporal output, high-motion frames lean static (anti-ghosting).
+    Doubles the per-frame model cost while enabled.
     """
     input_path = Path(input_path)
     output_path = Path(output_path)
@@ -440,10 +449,23 @@ def infer_video_temporal(
         raise FileExistsError(output_path)
     if window_fn is None:
         raise ValueError("window_fn is required for temporal inference")
+    if (blend is None) != (static_fn is None):
+        raise ValueError("blend requires static_fn and vice versa")
     if clip_size < 1 or clip_size % 2 == 0:
         raise ValueError("clip_size must be a positive odd number")
     if out_scale < 1:
         raise ValueError("out_scale must be >= 1")
+    use_blend = blend is not None
+
+    def finish(idx: int, temporal_out: np.ndarray,
+               cur_frame: np.ndarray) -> np.ndarray:
+        """Blend a temporal result toward the static result per motion."""
+        if not use_blend:
+            return temporal_out
+        prev = next((f for k, f in buf if k == idx - 1), None)
+        w = (motion_weight(luma_diff(prev, cur_frame), *blend)
+             if prev is not None else 0.0)
+        return blend_frames(temporal_out, static_fn(cur_frame, idx), w)
 
     src_info = info or probe_video(input_path)
     out_info = dataclasses.replace(
@@ -507,14 +529,14 @@ def infer_video_temporal(
                         f"frame_fn returned shape {out.shape}, "
                         f"expected {expected_shape}"
                     )
-                completed[j] = out
+                completed[j] = finish(j, out, frame)
             elif plan[j] is None:
                 if out_scale != 1:
                     raise ValueError(
                         "frame_fn is required for out_scale > 1 fallback "
                         f"frames (frame {j} sits on a scene boundary)"
                     )
-                completed[j] = frame  # passthrough fallback
+                completed[j] = finish(j, frame, frame)
 
             # a window center completes exactly when its last frame arrives
             c = j - half
@@ -528,7 +550,7 @@ def infer_video_temporal(
                         f"window_fn returned shape {out.shape}, "
                         f"expected {expected_shape}"
                     )
-                completed[c] = out
+                completed[c] = finish(c, out, center_frame)
             emit_ready()
         emit_ready()
         encoder.stdin.close()
