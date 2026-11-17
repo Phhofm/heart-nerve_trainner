@@ -72,6 +72,8 @@ def _cmd_infer(a: argparse.Namespace) -> int:
 
 
 def _cmd_video(a: argparse.Namespace) -> int:
+    if a.arch == "tnerve":
+        return _cmd_video_tnerve(a)
     res = infer_video(
         a.model,
         a.input,
@@ -86,6 +88,44 @@ def _cmd_video(a: argparse.Namespace) -> int:
         deinterlace=a.deinterlace,
         on_progress=lambda done, total: print(
             f"frame {done}/{total if total is not None else '?'}", flush=True
+        ),
+    )
+    print(f"output {res.output}")
+    print(f"frames {res.frames}")
+    return 0
+
+
+def _cmd_video_tnerve(a: argparse.Namespace) -> int:
+    """Temporal (windowed) video SR with the motion-adaptive blend."""
+    from .tnerve_runner import load_tnerve, make_fns
+    from .video import infer_video_temporal
+
+    net = load_tnerve(a.model, device=a.device,
+                      clip_size=a.clip_size, dim=a.dim,
+                      n_blocks=a.n_blocks)
+    window_fn, static_fn = make_fns(net, device=a.device,
+                                    clip_size=a.clip_size)
+    blend = None
+    static_fn_for_pipeline = None
+    if a.blend != "off":
+        if a.blend == "auto":
+            blend = (0.10, 0.30)  # temporal-friendly default
+        else:
+            m0, m1 = (float(x) for x in a.blend.split(","))
+            blend = (m0, m1)
+        static_fn_for_pipeline = static_fn
+    res = infer_video_temporal(
+        a.input,
+        a.out,
+        window_fn=window_fn,
+        frame_fn=static_fn,
+        static_fn=static_fn_for_pipeline,
+        blend=blend,
+        clip_size=a.clip_size,
+        out_scale=a.scale,
+        overwrite=a.overwrite,
+        on_progress=lambda done, total: print(
+            f"frame {done}/{total}", flush=True
         ),
     )
     print(f"output {res.output}")
@@ -218,8 +258,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     video = sub.add_parser("video", help="enhance a video with a BODY model")
     video.add_argument("--model", required=True, help=".safetensors/.pth BODY model")
-    video.add_argument("--arch", default="NERVE", choices=["nerve", "heart", "pulse", "pulse_fast"])
+    video.add_argument("--arch", default="NERVE",
+                       choices=["nerve", "heart", "pulse", "pulse_fast",
+                                "tnerve"])
     video.add_argument("--scale", type=int, default=2, choices=SCALES)
+    video.add_argument("--clip-size", type=int, default=13,
+                       help="T-NERVE only: temporal window size (odd)")
+    video.add_argument("--dim", type=int, default=64,
+                       help="T-NERVE only: feature dim (64 = release)")
+    video.add_argument("--n-blocks", type=int, default=24,
+                       help="T-NERVE only: block count (24 = release)")
+    video.add_argument("--blend", default="off",
+                       help="T-NERVE only: motion-adaptive anti-ghosting "
+                            "blend - 'off', 'auto' (0.10/0.30 ramp), or "
+                            "'m0,m1' luma-diff thresholds")
     video.add_argument("--input", required=True)
     video.add_argument("--out", required=True)
     video.add_argument("--device", default="cuda")
