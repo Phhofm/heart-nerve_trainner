@@ -40,6 +40,44 @@ def test_metrics_chart_collects_points(qapp):
     assert chart._xs == {}
 
 
+def test_theme_switch_recolors_chart_and_persists(qapp, tmp_path):
+    from hnt.ui import theme
+    from hnt.ui.chart import MetricsChart
+
+    chart = MetricsChart()
+    chart.add_point("psnr", 1000, 28.0)
+    dark_pen = chart._curves["psnr"].opts["pen"]
+
+    theme.set_mode("light")
+    chart.refresh_palette()
+    light_pen = chart._curves["psnr"].opts["pen"]
+    assert light_pen.color().name() != dark_pen.color().name()
+    assert light_pen.color().name() == theme.PALETTES["light"]["ACCENT"]
+    theme.set_mode("dark")  # leave the process in the default mode
+    assert theme.stylesheet("light") != theme.stylesheet("dark")
+
+    # MainWindow toggle persists the choice and flips the button label
+    from hnt.paths import find_repo
+    from hnt.ui.main_window import MainWindow
+
+    try:
+        find_repo()
+    except FileNotFoundError:
+        pytest.skip("traiNNer checkout not found")
+
+    import hnt.ui.main_window as mw
+
+    win = MainWindow()
+    win.paths = type(win.paths)(
+        **{**win.paths.__dict__, "data": tmp_path})
+    win._toggle_theme()
+    assert (tmp_path / "ui" / "theme.json").read_text() == '{"mode": "light"}'
+    assert win.theme_btn.text() == "Dark mode"
+    win._toggle_theme()
+    assert win.theme_btn.text() == "Light mode"
+    win.close()
+
+
 def test_main_window_constructs_and_plots(qapp):
     from hnt.paths import find_repo
     from hnt.ui.main_window import MainWindow
@@ -93,6 +131,76 @@ def test_inference_window_constructs(qapp):
     win = InferenceWindow()
     assert win.device.count() == 3  # Auto / CUDA / CPU
     assert win.arch.currentText() == "nerve"
+    win.close()
+
+
+def test_inference_window_dnerve_restores_at_input_resolution(qapp):
+    from hnt.paths import find_repo
+    from hnt.ui.inference import InferenceWindow
+
+    try:
+        find_repo()
+    except FileNotFoundError:
+        pytest.skip("traiNNer checkout not found")
+
+    win = InferenceWindow()
+    assert "dnerve" in [win.arch.itemText(i) for i in range(win.arch.count())]
+    assert win.scale.isEnabled()
+    win.arch.setCurrentText("dnerve")
+    assert not win.scale.isEnabled()
+    assert win.scale.currentText() == "1"
+    win.arch.setCurrentText("nerve")
+    assert win.scale.isEnabled()
+    assert win.scale.currentText() == "2"  # restored, not left at 1x
+    win.close()
+
+
+def test_inference_window_colorfix_toggle_off_by_default(qapp, monkeypatch, tmp_path):
+    from PySide6.QtCore import QThread, Signal as QtSignal
+
+    from hnt.paths import find_repo
+    from hnt.ui import inference as inf_mod
+    from hnt.ui.inference import InferenceWindow
+
+    try:
+        find_repo()
+    except FileNotFoundError:
+        pytest.skip("traiNNer checkout not found")
+
+    win = InferenceWindow()
+    assert not win.colorfix.isChecked()  # opt-in: off by default
+
+    started = {}
+
+    class FakeWorker(QThread):
+        line = QtSignal(str)
+        progress = QtSignal(int, int)
+        done = QtSignal(int, int, list)
+
+        def __init__(self, model, inputs, out, arch, scale, device, tile,
+                     skip_existing=False, colorfix=False):
+            super().__init__()
+            started["colorfix"] = colorfix
+
+        def start(self):
+            started["started"] = True
+
+        def isRunning(self):
+            return False
+
+        def wait(self, t):
+            return True
+
+    monkeypatch.setattr(inf_mod, "InferWorker", FakeWorker)
+    (tmp_path / "out").mkdir()
+    win.model._edit.setText(str(tmp_path / "m.safetensors"))
+    win.out._edit.setText(str(tmp_path / "out"))
+    image = tmp_path / "in.png"
+    image.write_bytes(b"stub")
+    win._add_dropped([image])
+    win.colorfix.setChecked(True)
+    win._run()
+    assert started["colorfix"] is True and started["started"] is True
     win.close()
 
 
@@ -308,6 +416,47 @@ def test_video_window_constructs(qapp):
     assert not win.overwrite.isChecked()
     assert not win.cancel_btn.isEnabled()
     win.close()
+
+
+def test_video_window_tnerve_enables_blend_with_recommended_default(qapp):
+    from hnt.paths import find_repo
+    from hnt.ui.video import VideoWindow
+
+    try:
+        find_repo()
+    except FileNotFoundError:
+        pytest.skip("traiNNer checkout not found")
+
+    win = VideoWindow()
+    assert "tnerve" in [win.arch.itemText(i) for i in range(win.arch.count())]
+    assert not win.blend.isEnabled()  # image models have no blend
+    win.arch.setCurrentText("tnerve")
+    assert win.blend.isEnabled()
+    assert win.blend.currentData() == "auto"  # recommended anti-ghosting default
+    win.arch.setCurrentText("heart")
+    assert not win.blend.isEnabled()
+    win.close()
+
+
+def test_video_cmd_wiring():
+    from hnt.ui.video import video_cmd
+
+    base = dict(model="m.safetensors", input_path="in.mp4",
+                output_path="out.mp4", scale=2, device="cuda", tile=0,
+                codec="libx264", crf=18, overwrite=False, deinterlace=False)
+    cmd = video_cmd(arch="tnerve", blend="auto", **base)
+    assert cmd[cmd.index("--arch") + 1] == "tnerve"
+    assert cmd[cmd.index("--blend") + 1] == "auto"
+
+    cmd = video_cmd(arch="tnerve", blend="off", **base)
+    assert "--blend" not in cmd
+
+    cmd = video_cmd(arch="nerve", blend="auto", **base)  # blend is tnerve-only
+    assert "--blend" not in cmd
+
+    cmd = video_cmd(arch="nerve", blend="off",
+                    **{**base, "overwrite": True, "deinterlace": True})
+    assert "--overwrite" in cmd and "--deinterlace" in cmd
 
 
 def test_video_window_progress_and_done(qapp, tmp_path):

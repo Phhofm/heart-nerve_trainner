@@ -43,8 +43,9 @@ class CatalogEntry:
             raise ValueError("download_url must be https")
         if not data["formats"]:
             raise ValueError("at least one format required")
-        if data["license"] != "MIT":
-            raise ValueError("only MIT models are allowed")
+        allowed = ("MIT", "Apache-2.0")
+        if not str(data["license"]).startswith(allowed):
+            raise ValueError("only MIT or Apache-2.0 models are allowed")
         return cls(
             id=data["id"], name=data["name"], family=data["family"],
             arch=data["arch"], scale=int(data["scale"]), params=int(data["params"]),

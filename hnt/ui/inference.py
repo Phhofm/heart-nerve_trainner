@@ -72,11 +72,12 @@ class InferWorker(QThread):
     progress = Signal(int, int)  # (done, total) — parsed from CLI progress lines
     done = Signal(int, int, list)  # (wrote, errors, output paths)
 
-    def __init__(self, model, inputs, out, arch, scale, device, tile, skip_existing=False):
+    def __init__(self, model, inputs, out, arch, scale, device, tile, skip_existing=False, colorfix=False):
         super().__init__()
         self.model, self.inputs, self.out = model, inputs, out
         self.arch, self.scale, self.device, self.tile = arch, scale, device, tile
         self.skip_existing = skip_existing
+        self.colorfix = colorfix
 
     def run(self) -> None:
         src = app_source_dir()
@@ -88,6 +89,8 @@ class InferWorker(QThread):
         ]
         if self.skip_existing:
             cmd.append("--skip-existing")
+        if self.colorfix:
+            cmd.append("--colorfix")
         env = dict(os.environ)
         env["PYTHONPATH"] = str(src) + os.pathsep + env.get("PYTHONPATH", "")
         outputs: list[str] = []
@@ -157,7 +160,8 @@ class InferenceWindow(QMainWindow):
         self.info.setWordWrap(True)
 
         self.model = self._file_row("(optional) custom .safetensors/.pth …")
-        self.arch = QComboBox(); self.arch.addItems(["nerve", "heart", "pulse", "pulse_fast"])
+        self.arch = QComboBox(); self.arch.addItems(["nerve", "heart", "pulse", "pulse_fast", "dnerve"])
+        self.arch.currentTextChanged.connect(self._on_arch)
         self.scale = QComboBox(); self.scale.addItems([str(s) for s in SCALES]); self.scale.setCurrentText("2")
         self.device = QComboBox(); self.device.addItems(["Auto", "CUDA", "CPU"])
         self.tile = QComboBox()
@@ -187,6 +191,11 @@ class InferenceWindow(QMainWindow):
         form.addRow("Scale", self.scale)
         form.addRow("Device", self.device)
         form.addRow("Big image tiling", self.tile)
+        self.colorfix = QCheckBox("Color match (wavelet)")
+        self.colorfix.setToolTip(
+            "Keep the input's low-frequency colors; guards against color "
+            "drift. Useful for stylized content.")
+        form.addRow("", self.colorfix)
         form.addRow("Input", self.inputs)
         form.addRow("", inwrap)
         form.addRow("Output folder", self.out)
@@ -275,6 +284,20 @@ class InferenceWindow(QMainWindow):
             )
 
     # ---- helpers ----
+    def _on_arch(self, arch: str) -> None:
+        if arch == "dnerve":
+            if self.scale.findText("1") < 0:
+                self.scale.addItem("1")
+            self.scale.setCurrentText("1")
+            self.scale.setEnabled(False)
+            self.scale.setToolTip(
+                "D-NERVE restores at the input resolution — no upscale.")
+        else:
+            self.scale.setEnabled(True)
+            self.scale.setToolTip("")
+            if self.scale.currentText() == "1":
+                self.scale.setCurrentText("2")
+
     def _file_row(self, ph: str) -> QWidget:
         w = QWidget(); h = QHBoxLayout(w); h.setContentsMargins(0, 0, 0, 0)
         e = QLineEdit(); e.setPlaceholderText(ph)
@@ -337,6 +360,7 @@ class InferenceWindow(QMainWindow):
             model, inputs, out, self.arch.currentText(),
             int(self.scale.currentText()), device, tile,
             skip_existing=self.skip_existing.isChecked(),
+            colorfix=self.colorfix.isChecked(),
         )
         self._worker.line.connect(self.log.appendPlainText)
         self._worker.progress.connect(self._on_progress)

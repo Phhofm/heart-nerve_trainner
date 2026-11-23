@@ -17,14 +17,19 @@ from PySide6.QtWidgets import QFrame, QGridLayout, QLabel, QVBoxLayout, QWidget
 
 from . import theme
 
-# metric name → line colour (falls back to muted for anything unknown)
+# metric name → line colour (falls back to muted for anything unknown);
+# read from the ACTIVE palette so a theme switch recolors new curves.
 _COLORS = {
-    "psnr": theme.ACCENT,
-    "ssim": theme.OK,
-    "dists": theme.WARN,
-    "lpips": theme.ERR,
-    "topiq": theme.ACCENT2,
+    "psnr": "ACCENT",
+    "ssim": "OK",
+    "dists": "WARN",
+    "lpips": "ERR",
+    "topiq": "ACCENT2",
 }
+
+
+def _metric_color(name: str) -> str:
+    return theme.active().get(_COLORS.get(name, "MUTED"), theme.active()["MUTED"])
 
 # panel title → metrics shown in it
 _GROUPS: dict[str, tuple[str, ...]] = {
@@ -39,7 +44,7 @@ class MetricsChart(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         pg.setConfigOptions(antialias=True)
-        pg.setConfigOption("foreground", theme.MUTED)
+        pg.setConfigOption("foreground", theme.active()["MUTED"])
 
         self._plots: dict[str, pg.PlotWidget] = {}
         self._sub_plots: dict[str, pg.PlotItem] = {}
@@ -59,9 +64,9 @@ class MetricsChart(QWidget):
             grid.setContentsMargins(12, 10, 12, 12)
 
             plot = pg.PlotWidget()
-            plot.setBackground(None)  # transparent → the framed panel shows through
+            plot.setBackground(theme.active()["PANEL2"])  # matches the framed panel
             plot.setMinimumHeight(150)
-            plot.setTitle(title, color=theme.MUTED, size="10pt")
+            plot.setTitle(title, color=theme.active()["MUTED"], size="10pt")
             plot.setLabel("bottom", "iteration")
             plot.setMenuEnabled(False)
             plot.addLegend(offset=(10, 10))
@@ -98,7 +103,7 @@ class MetricsChart(QWidget):
         panel = self._panel.get(name, next(iter(_GROUPS)))
         if name not in self._curves:
             self._curves[name] = self._plots[panel].plot(
-                pen=pg.mkPen(_COLORS.get(name, theme.MUTED), width=2), name=name.upper()
+                pen=pg.mkPen(_metric_color(name), width=2), name=name.upper()
             )
             self._xs[name], self._ys[name] = [], []
             self._hint[panel].hide()
@@ -106,6 +111,16 @@ class MetricsChart(QWidget):
         self._xs[name].append(x)
         self._ys[name].append(value)
         self._curves[name].setData(self._xs[name], self._ys[name])
+
+    def refresh_palette(self) -> None:
+        """Restyle existing plots after a theme switch (live, no restart)."""
+        p = theme.active()
+        pg.setConfigOption("foreground", p["MUTED"])
+        for title, plot in self._plots.items():
+            plot.setTitle(title, color=p["MUTED"], size="10pt")
+            plot.setBackground(p["PANEL2"])
+        for name, curve in self._curves.items():
+            curve.setPen(pg.mkPen(_metric_color(name), width=2))
 
     def clear(self) -> None:
         for name, curve in self._curves.items():

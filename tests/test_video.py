@@ -492,3 +492,31 @@ def test_infer_video_temporal_blend_toward_static_on_motion(tmp_path: Path):
     assert 200 < vals[3] < 202  # blend landed between temporal(202) and static(200)
     assert vals[4] == 201
     assert vals[5] == 202
+
+
+def test_infer_video_temporal_threads_codec_and_crf(tmp_path: Path):
+    input_path = tmp_path / "inc.mp4"
+    input_path.write_bytes(b"stub")
+
+    frames = [_flat(10)] * 3
+    raw = b"".join(f.tobytes() for f in frames)
+    factory, _ = _fake_decoders(raw, raw)
+    encoder = FakeProcess()
+    cmds: dict[str, list[str]] = {}
+
+    result = infer_video_temporal(
+        input_path,
+        tmp_path / "out.mp4",
+        window_fn=lambda w, c: w[-1],
+        frame_fn=lambda f, i: f,
+        clip_size=3,
+        info=_info(total_frames=3),
+        codec="libx265",
+        crf=20,
+        decoder_factory=factory,
+        encoder_factory=lambda cmd: (cmds.__setitem__("encode", cmd), encoder)[1],
+    )
+    assert result.frames == 3
+    enc = cmds["encode"]
+    assert "libx265" in enc
+    assert enc[enc.index("-crf") + 1] == "20"

@@ -423,6 +423,8 @@ def infer_video_temporal(
     encoder_factory: ProcessFactory | None = None,
     on_progress: ProgressFn | None = None,
     overwrite: bool = False,
+    codec: str = "libx264",
+    crf: int = 18,
 ) -> VideoResult:
     """Enhance a video with a temporal (windowed) model, cut-safe by design.
 
@@ -477,9 +479,7 @@ def infer_video_temporal(
     make_decoder = decoder_factory or _start_process
     make_encoder = encoder_factory or _start_process
     frame_bytes = src_info.width * src_info.height * 3
-    half = clip_size // 2
-
-    # pass 1: downscaled scene-cut scan
+    half = clip_size // 2    # pass 1: downscaled scene-cut scan
     scan_cmd = build_decode_args(src_info, input_path)
     scan_frames = _decode_pass(make_decoder, scan_cmd, frame_bytes, src_info)
     cuts = detect_cuts_scaled(scan_frames, cut_threshold, scan_long_side)
@@ -489,7 +489,7 @@ def infer_video_temporal(
     # pass 2: full-res processing with a rolling window buffer
     decode_cmd = build_decode_args(src_info, input_path)
     encode_cmd = build_encode_args(out_info, output_path, input_path,
-                                   overwrite=overwrite)
+                                   overwrite=overwrite, codec=codec, crf=crf)
     decoder = make_decoder(decode_cmd)
     encoder = make_encoder(encode_cmd)
     emitted = 0

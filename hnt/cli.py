@@ -61,6 +61,7 @@ def _cmd_infer(a: argparse.Namespace) -> int:
 
     res = infer_paths(a.model, list(a.input), a.out, arch=a.arch, scale=a.scale,
                       device=a.device, tile=a.tile, skip_existing=a.skip_existing,
+                      colorfix=a.colorfix,
                       on_progress=lambda done, total, path: print(
                           f"progress {done}/{total} {path}", flush=True))
     for p in res.outputs:
@@ -124,6 +125,8 @@ def _cmd_video_tnerve(a: argparse.Namespace) -> int:
         clip_size=a.clip_size,
         out_scale=a.scale,
         overwrite=a.overwrite,
+        codec=a.codec,
+        crf=a.crf,
         on_progress=lambda done, total: print(
             f"frame {done}/{total}", flush=True
         ),
@@ -242,13 +245,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     inf = sub.add_parser("infer")
     inf.add_argument("--model", required=True, help=".safetensors/.pth HEART or NERVE model")
-    inf.add_argument("--arch", default="NERVE", choices=["nerve", "heart", "pulse", "pulse_fast"])
+    inf.add_argument("--arch", default="NERVE",
+                     choices=["nerve", "heart", "pulse", "pulse_fast", "dnerve"])
     inf.add_argument("--scale", type=int, default=2, choices=SCALES)
     inf.add_argument("--input", nargs="+", required=True, help="image files and/or folders")
     inf.add_argument("--out", required=True)
     inf.add_argument("--device", default="cuda")
     inf.add_argument("--tile", type=int, default=0, help="0 = auto by image size; -1 = whole image; else tile px")
     inf.add_argument("--skip-existing", action="store_true")
+    inf.add_argument("--colorfix", action="store_true",
+                     help="wavelet color match against the input "
+                          "(guards against color drift)")
     inf.set_defaults(fn=_cmd_infer)
 
     h = sub.add_parser("help-text")

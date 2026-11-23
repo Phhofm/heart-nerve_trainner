@@ -52,6 +52,13 @@ def _to_tensor(img: np.ndarray, device: str):
     return t.to(device)
 
 
+def dino_feats(dino, t):
+    """Feature-grid extraction hook (kept import-light in infer_paths)."""
+    from .dnerve_infer import extract_features
+
+    return extract_features(dino, t)
+
+
 def _to_uint8(t) -> np.ndarray:
     a = t.detach().clamp(0, 1).squeeze(0).permute(1, 2, 0).cpu().numpy()
     return (a * 255.0).round().astype(np.uint8)
@@ -161,6 +168,7 @@ def infer_paths(
     overlap: int = 16,
     suffix: str | None = None,
     skip_existing: bool = False,
+    colorfix: bool = False,
     on_progress: Callable[[int, int, Path], None] | None = None,
 ) -> InferResult:
     """Run inference on files and/or folders; outputs go to ``out_dir``.
@@ -168,7 +176,48 @@ def infer_paths(
     ``on_progress(done, total, path)`` fires after each file is processed
     (including files skipped by ``skip_existing``).
     """
-    net = load_model(model_path, arch, scale, device)
+    if arch.lower() == "dnerve":
+        # Restoration at input resolution on the frozen DINOv2 substrate:
+        # same file walk, a substrate-aware runner, scale fixed to 1.
+        import torch
+
+        from .dnerve_infer import load_dnerve, run_dnerve
+        from .paths import get_paths
+
+        decoder, dino = load_dnerve(str(model_path), get_paths(), device)
+
+        def net(t):
+            return decoder(dino_feats(dino, t), t)
+
+        scale = 1
+
+        def pick_tile(h: int, w: int, requested: int) -> int:
+            if requested < 0:
+                return 0
+            if requested > 0:
+                return requested
+            # DINOv2 attention handles a few megapixels whole-frame.
+            return 0 if h * w <= 2_500_000 and max(h, w) <= 2048 else 448
+
+        def run_one(img: np.ndarray, tile_px: int) -> np.ndarray:
+            if tile_px:
+                return _run_tiled(net, img, scale, device, tile_px, overlap)
+            try:
+                return run_dnerve(decoder, dino, img, device)
+            except torch.cuda.OutOfMemoryError:
+                # Huge frames: fall back to /14-friendly tiles seamlessly.
+                torch.cuda.empty_cache()
+                return _run_tiled(net, img, scale, device, 448, overlap)
+    else:
+        net = load_model(model_path, arch, scale, device)
+
+        def pick_tile(h: int, w: int, requested: int) -> int:
+            return _choose_tile(h, w, requested)
+
+        def run_one(img: np.ndarray, tile_px: int) -> np.ndarray:
+            return (_run_tiled(net, img, scale, device, tile_px, overlap)
+                    if tile_px else _run_full(net, img, scale, device))
+
     model_stem = Path(model_path).stem
     suffix = suffix or model_stem
     out_dir = Path(out_dir)
@@ -191,9 +240,10 @@ def infer_paths(
             dst = _destination_for(roots, f, out_dir, suffix)
             if not (skip_existing and dst.exists()):
                 img = _load_image(f)
-                tile_px = _choose_tile(img.shape[0], img.shape[1], tile)
-                res = (_run_tiled(net, img, scale, device, tile_px, overlap) if tile_px
-                       else _run_full(net, img, scale, device))
+                tile_px = pick_tile(img.shape[0], img.shape[1], tile)
+                res = run_one(img, tile_px)
+                if colorfix:
+                    res = _color_matched(res, img)
                 _save_image(res, dst)
                 outputs.append(dst)
         except Exception as e:  # noqa: BLE001
@@ -201,3 +251,15 @@ def infer_paths(
         if on_progress:
             on_progress(done, len(files), f)
     return InferResult(outputs, errors)
+
+
+def _color_matched(res: np.ndarray, img: np.ndarray) -> np.ndarray:
+    """Wavelet color match against the input (resized if the model upscales)."""
+    from PIL import Image
+
+    from .colorfix import wavelet_color_match
+
+    if res.shape[:2] != img.shape[:2]:
+        img = np.asarray(Image.fromarray(img).resize(
+            (res.shape[1], res.shape[0]), Image.BILINEAR))
+    return wavelet_color_match(res, img)

@@ -22,7 +22,7 @@ def test_bundled_catalog_exists_and_is_valid():
         assert e.scale in (2, 4)
         assert e.params > 0
         assert e.download_url.startswith("https://")
-        assert e.license == "MIT"
+        assert e.license in ("MIT",) or e.license.startswith("Apache-2.0")
         assert e.formats, "at least one inference format"
         assert "safetensors" in e.formats
         assert e.vram_hint and e.description
@@ -107,6 +107,12 @@ def test_catalog_entry_from_dict_requires_all_fields():
 
     with pytest.raises(ValueError):
         CatalogEntry.from_dict({**data, "download_url": "ftp://x"})
+
+    # T-NERVE lineage is Apache-2.0; proprietary licenses stay rejected.
+    apache = CatalogEntry.from_dict({**data, "license": "Apache-2.0"})
+    assert apache.license == "Apache-2.0"
+    with pytest.raises(ValueError):
+        CatalogEntry.from_dict({**data, "license": "CC-BY-NC-4.0"})
 
 
 def test_cli_catalog_prints_entries():

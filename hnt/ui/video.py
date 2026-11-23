@@ -39,6 +39,54 @@ from ..presets import SCALES
 from .inference import CatalogWorker
 
 
+def video_cmd(
+    model: str,
+    input_path: str,
+    output_path: str,
+    arch: str,
+    scale: int,
+    device: str,
+    tile: int,
+    codec: str,
+    crf: int,
+    overwrite: bool,
+    deinterlace: bool,
+    blend: str = "off",
+) -> list[str]:
+    """Headless video command line (shared by the worker and tests)."""
+    cmd = [
+        runtime_python(get_paths()),
+        "-m",
+        "hnt.cli",
+        "video",
+        "--model",
+        model,
+        "--arch",
+        arch,
+        "--scale",
+        str(scale),
+        "--input",
+        input_path,
+        "--out",
+        output_path,
+        "--device",
+        device,
+        "--tile",
+        str(tile),
+        "--codec",
+        codec,
+        "--crf",
+        str(crf),
+    ]
+    if overwrite:
+        cmd.append("--overwrite")
+    if deinterlace:
+        cmd.append("--deinterlace")
+    if arch == "tnerve" and blend != "off":
+        cmd += ["--blend", blend]
+    return cmd
+
+
 class VideoWorker(QThread):
     """Run a video enhancement job in the isolated venv."""
 
@@ -58,6 +106,7 @@ class VideoWorker(QThread):
         crf: int,
         overwrite: bool,
         deinterlace: bool,
+        blend: str = "off",
     ):
         super().__init__()
         self.model = model
@@ -71,38 +120,25 @@ class VideoWorker(QThread):
         self.crf = crf
         self.overwrite = overwrite
         self.deinterlace = deinterlace
+        self.blend = blend
         self.proc: subprocess.Popen | None = None
 
     def run(self) -> None:
         src = app_source_dir()
-        cmd = [
-            runtime_python(get_paths()),
-            "-m",
-            "hnt.cli",
-            "video",
-            "--model",
-            self.model,
-            "--arch",
-            self.arch,
-            "--scale",
-            str(self.scale),
-            "--input",
-            self.input_path,
-            "--out",
-            self.output_path,
-            "--device",
-            self.device,
-            "--tile",
-            str(self.tile),
-            "--codec",
-            self.codec,
-            "--crf",
-            str(self.crf),
-        ]
-        if self.overwrite:
-            cmd.append("--overwrite")
-        if self.deinterlace:
-            cmd.append("--deinterlace")
+        cmd = video_cmd(
+            model=self.model,
+            input_path=self.input_path,
+            output_path=self.output_path,
+            arch=self.arch,
+            scale=self.scale,
+            device=self.device,
+            tile=self.tile,
+            codec=self.codec,
+            crf=self.crf,
+            overwrite=self.overwrite,
+            deinterlace=self.deinterlace,
+            blend=self.blend,
+        )
         env = dict(os.environ)
         env["PYTHONPATH"] = str(src) + os.pathsep + env.get("PYTHONPATH", "")
         try:
@@ -168,7 +204,8 @@ class VideoWindow(QMainWindow):
 
         self.model = self._file_row("(optional) custom .safetensors/.pth …")
         self.arch = QComboBox()
-        self.arch.addItems(["nerve", "heart", "pulse", "pulse_fast"])
+        self.arch.addItems(["nerve", "heart", "pulse", "pulse_fast", "tnerve"])
+        self.arch.currentTextChanged.connect(self._on_arch)
         self.scale = QComboBox()
         self.scale.addItems([str(s) for s in SCALES])
         self.scale.setCurrentText("2")
@@ -182,6 +219,14 @@ class VideoWindow(QMainWindow):
             ("Whole frame (may OOM)", -1),
         ):
             self.tile.addItem(label, value)
+        self.blend = QComboBox()
+        self.blend.addItem("Off", "off")
+        self.blend.addItem("Auto (recommended)", "auto")
+        self.blend.setEnabled(False)
+        self.blend.setToolTip(
+            "T-NERVE only: blends high-motion frames toward the single-frame "
+            "result to prevent ghosting on fast motion and hand-drawn line boil."
+        )
         self.input = self._input_row()
         self.out = self._output_row()
         self.codec = QComboBox()
@@ -204,6 +249,7 @@ class VideoWindow(QMainWindow):
         form.addRow("Scale", self.scale)
         form.addRow("Device", self.device)
         form.addRow("Frame tiling", self.tile)
+        form.addRow("Anti-ghosting blend", self.blend)
         form.addRow("Input video", self.input)
         form.addRow("Output video", self.out)
         form.addRow("Codec", self.codec)
@@ -388,6 +434,12 @@ class VideoWindow(QMainWindow):
             )
 
     # ---- job handling ----
+    def _on_arch(self, arch: str) -> None:
+        is_tnerve = arch == "tnerve"
+        self.blend.setEnabled(is_tnerve)
+        if is_tnerve and self.blend.currentData() == "off":
+            self.blend.setCurrentIndex(self.blend.findData("auto"))
+
     def _run(self) -> None:
         model = self.model._edit.text().strip()  # type: ignore[attr-defined]
         input_path = self.input._edit.text().strip()  # type: ignore[attr-defined]
@@ -446,6 +498,7 @@ class VideoWindow(QMainWindow):
             int(self.crf.value()),
             self.overwrite.isChecked(),
             self.deinterlace.isChecked(),
+            self.blend.currentData(),
         )
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_done)

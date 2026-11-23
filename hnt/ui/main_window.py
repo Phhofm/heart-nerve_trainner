@@ -433,15 +433,19 @@ class MainWindow(QMainWindow):
         inferbtn = QPushButton("Inference…"); inferbtn.clicked.connect(self._open_inference)
         videobtn = QPushButton("Video…"); videobtn.clicked.connect(self._open_video)
         expbtn = QPushButton("Export / Convert…"); expbtn.clicked.connect(self._open_export)
+        self.theme_btn = QPushButton(); self.theme_btn.clicked.connect(self._toggle_theme)
+        self.theme_btn.setToolTip("Switch between the dark and light interface")
+        self._update_theme_btn()
         row = QHBoxLayout(); row.addWidget(stop); row.addWidget(self.tour_btn)
         row.addWidget(helpbtn); row.addWidget(updbtn)
         row.addWidget(clnbtn); row.addWidget(setupbtn); row.addWidget(inferbtn)
-        row.addWidget(videobtn); row.addWidget(expbtn); dv.addLayout(row)
+        row.addWidget(videobtn); row.addWidget(expbtn); row.addWidget(self.theme_btn)
+        dv.addLayout(row)
         cols.addWidget(dash, 4)
 
         self.timer = QTimer(self); self.timer.setInterval(1000); self.timer.timeout.connect(self._tick)
 
-        link = 'style="color:#7c9cff"'
+        link = f'style="color:{theme.active()["ACCENT"]}"'
         footer = QLabel(
             'Made by <b>Philip Hofmann</b>  ·  '
             f'<a {link} href="https://github.com/Phhofm">GitHub</a>  ·  '
@@ -1223,6 +1227,25 @@ class MainWindow(QMainWindow):
         self.runner.stop()
         event.accept()
 
+    # ---- theme ----
+    def _theme_file(self) -> Path:
+        return self.paths.data / "ui" / "theme.json"
+
+    def _toggle_theme(self) -> None:
+        mode = "light" if theme.active_mode() == "dark" else "dark"
+        theme.set_mode(mode, QApplication.instance())
+        try:
+            self._theme_file().parent.mkdir(parents=True, exist_ok=True)
+            self._theme_file().write_text(json.dumps({"mode": mode}))
+        except OSError:
+            pass  # unwritable data dir: the switch still works for this session
+        self.chart.refresh_palette()
+        self._update_theme_btn()
+
+    def _update_theme_btn(self) -> None:
+        self.theme_btn.setText(
+            "Light mode" if theme.active_mode() == "dark" else "Dark mode")
+
     def _help(self, step: str, error: str = "", log_path: str = "") -> None:
         tail = self.log.toPlainText()[-2000:]
         if log_path:
@@ -1237,6 +1260,16 @@ class MainWindow(QMainWindow):
             "Paste it into any AI assistant (ChatGPT / Gemini / DeepSeek / GLM …) "
             "or a forum, and ask for step-by-step help.",
         )
+
+
+def _load_theme_mode(paths) -> str:
+    """Persisted UI mode; dark is the default and corrupt files fall back."""
+    try:
+        data = json.loads((paths.data / "ui" / "theme.json").read_text())
+        mode = data.get("mode", "dark")
+        return mode if mode in theme.MODES else "dark"
+    except (OSError, ValueError, AttributeError):
+        return "dark"
 
 
 def run() -> int:
@@ -1254,7 +1287,8 @@ def run() -> int:
         lock = None  # unwritable data dir: still allow the app to start
 
     app = QApplication(sys.argv)
-    app.setStyleSheet(theme.QSS)
+    theme.set_mode(_load_theme_mode(paths))
+    app.setStyleSheet(theme.stylesheet())
     w = MainWindow()
     w.show()
     if not is_setup_complete(paths):

@@ -271,6 +271,37 @@ to CI.
    "Get help / report" — further polish optional).
 7. ~~Consider a dedicated Convert/Export page rather than only post-training
    export~~ (done: Export / Convert window).
+8. 2026-11-19: T-NERVE in the video window — the `tnerve` arch plus the
+   motion-adaptive anti-ghosting blend ("Off / Auto (recommended)",
+   auto-enabled with Auto when T-NERVE is selected) are wired through
+   `hnt.ui.video.video_cmd` and the worker; catalog license validator now
+   accepts Apache-2.0 lineage next to MIT.
+9. STAGED (blocked on the private repos going public — user decision): five
+   T-NERVE catalog entries (otf/perceptual/natural/anime/anime-light,
+   arch `tnerve`, 1,838,784 params, `Phips/T-NERVE/resolve/main/<ckpt>`)
+   and three D-NERVE entries. Private URLs probe as 404, so shipping them
+   in the bundled catalog would create dead links until then.
+10. 2026-11-19: dark AND light themes. `hnt/ui/theme.py` now carries both
+   palettes behind one design language (`stylesheet(mode)`, `set_mode`),
+   the training dashboard has a Light/Dark toggle that persists to
+   `ui/theme.json` and applies at startup, and the metrics chart recolors
+   live (`MetricsChart.refresh_palette` — plot backgrounds follow the
+   palette, which also fixed the not-actually-transparent plot bg).
+   Verified visually offscreen (dark + light screenshots attached to the
+   session log, both readable and coherent).
+11. 2026-11-19: **D-NERVE inference integrated.** Vendored registry-neutral
+   `hnt/dnerve_arch.py` (decoder only) + `hnt/dnerve_infer.py` (frozen
+   DINOv2-L substrate with one-time download into the app data dir,
+   `HNT_DINOV2` override for dev); `hnt.cli infer --arch dnerve` restores
+   at input resolution (whole-frame up to ~2.5 MP, seamless 448 px tiles
+   beyond/OOM); the inference window gets the `dnerve` arch with scale
+   auto-pinned to 1x and disabled. Substrate source:
+   `Phips/D-NERVE/substrate/dinov2_vitl14_pretrain.pth` (upload pending).
+   Verified end-to-end with the released v4 perceptual weights on an
+   AI-gen frame — output matches the research eval tool. Regression
+   lesson: the first real input was 960x704 (not /14) and failed until
+   the runner path was routed through the same pad logic as the eval
+   tool — non-/14 sizes are now covered by tests.
 
 ## Non-goals for now
 
