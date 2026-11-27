@@ -26,6 +26,22 @@ def qapp():
     yield app
 
 
+@pytest.fixture(autouse=True)
+def _no_modal_setup_prompt(monkeypatch):
+    """MainWindow._first_run_check pops a modal setup question whenever
+    the dev interpreter has no torch (CI, a plain uv venv) — and its
+    QTimer defers the modal into a LATER test's processEvents(), hanging
+    the whole suite. Answer 'No' instead: no modal ever blocks, windows
+    stay inert. Torch-bearing dev environments never see the modal."""
+    from hnt.ui import main_window as mw_module
+
+    monkeypatch.setattr(
+        mw_module.QMessageBox,
+        "question",
+        lambda *args, **kwargs: mw_module.QMessageBox.StandardButton.No,
+    )
+
+
 def test_metrics_chart_collects_points(qapp):
     from hnt.ui.chart import MetricsChart
 
@@ -300,8 +316,14 @@ def test_use_catalog_downloads_and_sets_model_path(qapp, monkeypatch, tmp_path):
         lambda entry, cache: fake,
     )
     win._use_catalog()
-    win._catalog_worker.wait(2000)
-    QApplication.processEvents()
+    # Drain events until the queued done signal lands (bounded): the
+    # worker emits from its thread, so the slot runs on the main event
+    # loop — a single processEvents() races it.
+    for _ in range(100):
+        QApplication.processEvents()
+        if win.model._edit.text():
+            break
+        win._catalog_worker.wait(20)
     assert win.model._edit.text() == str(fake)
     assert win.use_catalog.isEnabled()
     win.close()

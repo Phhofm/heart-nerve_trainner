@@ -38,8 +38,14 @@ def test_setup_modal_starts_install_and_reports(qapp, monkeypatch, tmp_path: Pat
 
     monkeypatch.setattr("hnt.ui.setup_modal.SetupWorker", FakeWorker)
     modal.install.click()
-    modal.worker.wait(2000)
-    QApplication.processEvents()
+    # Drain events until the queued done signal lands (bounded): the
+    # worker emits from its thread, so the slot runs on the main event
+    # loop — a single processEvents() races it.
+    for _ in range(100):
+        QApplication.processEvents()
+        if "fake install" in modal.log.toPlainText():
+            break
+        modal.worker.wait(20)
     assert modal.worker is not None
     assert "fake install" in modal.log.toPlainText()
     assert modal.install.isEnabled()
