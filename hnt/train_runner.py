@@ -91,7 +91,7 @@ def read_telemetry() -> Telemetry:
             ["nvidia-smi",
              "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu",
              "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=5, **quiet()).stdout.strip().splitlines()
+            capture_output=True, text=True, timeout=5, **_quiet()).stdout.strip().splitlines()
         if out:
             u, used, total, temp = [p.strip() for p in out[0].split(",")]
             t.gpu_util, t.vram_used_gb = float(u), round(float(used) / 1024, 2)

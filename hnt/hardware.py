@@ -53,7 +53,9 @@ class Hardware:
 def quiet() -> dict:
     """subprocess flags that stop console windows flashing on Windows."""
     if os.name == "nt":
-        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+        # getattr: CREATE_NO_WINDOW only exists on Windows; mypy on
+        # POSIX would flag the bare attribute.
+        return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
     return {}
 
 
