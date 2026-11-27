@@ -7,7 +7,7 @@
 ; + a copy of traiNNer-redux in packaging\vendor\.
 
 #define AppName "BODY Studio"
-#define AppVersion "0.1.4"
+#define AppVersion "0.2.0"
 #define AppExe "BodyStudio.exe"
 ; Paths in Inno are relative to this script; the repo root is two levels up.
 #define RepoDist AddBackslash(SourcePath) + "..\..\dist"

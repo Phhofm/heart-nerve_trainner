@@ -1,9 +1,9 @@
 {
-  "version": "0.1.4",
+  "version": "0.2.0",
   "deps_rev": "2026-10-16",
   "notes": "No console windows flashing during setup/training on Windows; deterministic test environment; code cleanup. Trainer vendored from the slimmed fork (6 configs, metric caching, torch>=2.11).",
   "assets": {
-    "windows": "https://github.com/Phhofm/heart-nerve_trainner/releases/latest/download/HeartNerveTrainer-Setup.exe",
-    "linux": "https://github.com/Phhofm/heart-nerve_trainner/releases/latest/download/HeartNerveTrainer.AppImage"
+    "windows": "https://github.com/Phhofm/heart-nerve_trainner/releases/latest/download/BodyStudio-Setup.exe",
+    "linux": "https://github.com/Phhofm/heart-nerve_trainner/releases/latest/download/BodyStudio-linux-x86_64.tar.gz"
   }
 }
