@@ -34,6 +34,9 @@ hnt = ["models.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Runnable without an editable install (uv sync / plain checkouts) —
+# CI's `pip install -e .` is unaffected by the extra path entry.
+pythonpath = ["."]
 markers = [
   "slow: long-running end-to-end smoke tests",
 ]

@@ -5,7 +5,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from hnt.colorfix import wavelet_color_match
+torch = pytest.importorskip("torch")
+
+from hnt.colorfix import wavelet_color_match  # noqa: E402
 
 
 def _flat(color: tuple[int, int, int], h: int = 64, w: int = 64) -> np.ndarray:

@@ -7,10 +7,11 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-import torch
 
-from hnt.dnerve_arch import DnervDecoder, load_dnerve_decoder
-from hnt.dnerve_infer import ensure_substrate, run_dnerve
+torch = pytest.importorskip("torch")
+
+from hnt.dnerve_arch import DnervDecoder, load_dnerve_decoder  # noqa: E402
+from hnt.dnerve_infer import ensure_substrate, run_dnerve  # noqa: E402
 
 
 class StubDino(torch.nn.Module):
