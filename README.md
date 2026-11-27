@@ -107,7 +107,7 @@ Profiles: **Fidelity** (clean, default), **Perceptual** (sharper textures), **Re
 python -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev,train]"
 
-pytest -q          # 130+ tests (configs, inference, video, runs, GUI smoke)
+pytest -q          # 180+ tests (configs, inference, video, runs, GUI smoke)
 python app.py      # launch the GUI
 hnt detect         # print detected hardware
 hnt selftest       # end-to-end: train → validate → save → export

@@ -1,6 +1,6 @@
 # BODY Studio — progress
 
-Updated: 2026-11-10
+Updated: 2026-11-27
 
 ## Current position
 
@@ -337,3 +337,129 @@ network + variant automatically (defaults), overridable before running.
 - **Inference toggle**: wavelet colorfix ("keep colors faithful to
   input") as a per-run option; default on for T-NERVE, off for D-NERVE
   heavy damage.
+
+
+## Onboarding & static-analysis baseline (2026-11-27)
+
+Log policy decision: this file stays the single progress/decision log —
+consolidating into a separate `DEVELOPMENT.md` was considered and declined
+(user decision, 2026-11-27).
+
+Tooling baseline: polycheck installed globally (pipx; refreshed to
+0.3.14 during this onboarding), plus scb-check and tach analyzers;
+deep scan run and baseline saved
+(`polycheck-reports/polycheck-baseline.json`) so future runs judge only
+new findings. First deep run: 1740 findings — 43 HIGH / 1017 MED /
+662 LOW / 18 INFO; gitleaks and pip-audit clean. Full report:
+`polycheck-reports/polycheck-report.md`. Still not installed
+(system-level, commands shown in session report): shellcheck,
+hadolint, actionlint; depcheck/tsc skipped (npm global EACCES,
+JS-only, not needed for this repo).
+
+Complete deep re-run (same day, after polycheck 0.3.14 fixed its
+sonarless PATH detection — sonarless had been installed at
+`~/.sonarless` since June but is on no PATH, so every earlier scan
+silently lacked the SonarQube pass; Docker was healthy throughout):
+2154 findings, of which sonarless/SonarQube contributes 414 — 375 in
+`packaging/vendor/trainer` (vendored upstream, 1 CRITICAL among them)
+and 39 first-party (15 HIGH / 16 MED / 8 LOW; top rules: S3776
+cognitive complexity ×10, S1244 float-equality ×7, S3358 nested
+ternary ×4). The baseline was NOT re-taken: the 414 untriaged
+SonarQube findings must be triaged and the vendor tree excluded from
+the SonarQube scan first, so `--diff` runs keep surfacing them as new
+until then.
+
+## Improvement batch (2026-11-27, findings → fixes)
+
+All findings triaged from the onboarding sweep + deep scans; suite now
+**182 passed / 7 skipped** in ~5 s (before: 12 collection errors in a
+torchless env, 1 failure, and a suite-hanging UI test).
+
+- **CI parity restored**: `tests/test_dnerve_infer.py` and
+  `tests/test_colorfix.py` now guard torch via
+  `pytest.importorskip`; new `tests/test_ci_parity.py` blocks torch in
+  a subprocess collection run (meta_path via sitecustomize — pytest 9
+  skips on module *absence* only) so the next unguarded import fails
+  locally instead of in CI. `pyproject.toml` pytest config gains
+  `pythonpath = ["."]` so the suite runs without an editable install.
+- **GPU telemetry bug fixed**: `hnt/train_runner.py` called the
+  unimported `quiet()` (helper is `_quiet`); the NameError was
+  swallowed by the bare except, so GPU tiles never populated.
+  Regression test in `tests/test_telemetry.py`. `hnt/hardware.py`'s
+  `quiet()` now uses `getattr(subprocess, "CREATE_NO_WINDOW", 0)`
+  (POSIX-defined behavior, clears the mypy HIGH).
+- **UI test hangs root-caused**: `MainWindow._first_run_check` shows a
+  modal setup question whenever the interpreter lacks torch — its
+  QTimer defers the modal into a LATER test's `processEvents()`
+  (faulthandler stack proved it). `test_ui_smoke.py` gains an autouse
+  fixture answering the modal with "No"; the catalog-worker tests
+  drain the event loop with a bounded loop instead of a single
+  `processEvents()` (same race fixed in `tests/test_setup_modal.py`).
+  36 ui tests now pass in ~3 s.
+- **Version consistency**: `latest.json` updated to 0.2.0 with real
+  `BodyStudio-*` artifact URLs (was 0.1.4 with dead `HeartNerveTrainer-*`
+  links — the updater offered a bogus downgrade); `installer.iss`
+  AppVersion → 0.2.0. New `tests/test_version_consistency.py` pins
+  pyproject == version.py == installer.iss == latest.json.
+- **Docs/README**: `docs/index.html` header rebranded to BODY Studio
+  and the lede now names the full family (NERVE/HEART/PULSE/T-NERVE/
+  D-NERVE); README test count refreshed. Remaining docs gap: full
+  feature documentation for PULSE/video/T-NERVE/D-NERVE/viewer/export.
+- **SonarQube vendor exclusion**: `sonar-project.properties` excludes
+  `packaging/vendor/**` (+ build dirs) durably. Verified with a
+  sonarless-only re-scan: 72 first-party findings, 0 vendor (was 414
+  with 375 vendor). `polycheck-reports/` currently holds that
+  sonarless-only report; the next full deep run refreshes the rest.
+- **Hygiene**: `.gitignore` now covers `.ruff_cache/`.
+
+Still open (triage queue): first-party SonarQube findings (26 HIGH /
+28 MED / 18 LOW — S3776 complexity refactors ×~10 need design care,
+S1244 float-equality ×7 need per-site judgment), CI lint job (ruff
+currently reports ~320 findings repo-wide — config first, then a
+sweep), `main_window.py` (1302 lines) refactor when UI work continues,
+AppImage `continue-on-error` visibility.
+
+Confirmed defects (deep run + repo sweep, each evidence-checked):
+
+- `hnt/train_runner.py:94` — `**quiet()` calls an unimported name
+  (the helper is imported as `_quiet`, line 24); the surrounding
+  `except Exception: pass` swallows the NameError, so GPU telemetry
+  silently never updates. One-line fix.
+- `tests/test_dnerve_infer.py:8` — bare `import torch` without
+  `importorskip`; CI installs only `.[dev]` (no torch), so
+  `pytest -q` fails at collection — CI broken since the D-NERVE tests
+  landed. Every other torch-touching test file guards correctly.
+- `hnt/infer.py:39` — `torch.load(..., weights_only=False)`: arbitrary
+  code execution if a non-catalog/malicious `.pth` is opened
+  (`dnerve_arch.py:57`, `dnerve_infer.py:53` already use
+  `weights_only=True`). Decision pending: are user-supplied local
+  weights an intended input, or can this path enforce True?
+- Release-consistency cluster: `latest.json` still 0.1.4 with old
+  `HeartNerveTrainer-*` asset URLs (the updater fetches this file and
+  would offer a bogus downgrade), `installer.iss` AppVersion hardcoded
+  "0.1.4" vs app 0.2.0, `docs/index.html:14` header still branded
+  "HEART / NERVE Trainer".
+
+Ist/soll sweep summary:
+
+- Run management (log item 1) and batch output UX (item 2) are done in
+  code — the "Current position" header above was stale; the real
+  backlog is the auto-routing roadmap below plus packaging/release
+  polish.
+- Tests: 175 test functions across 19 files (pytest, runs in CI
+  offscreen); tiers present: unit, integration (real ffmpeg, tiny-model
+  TNerve roundtrip, real-checkpoint PULSE infer), slow-gated e2e
+  (`test_pulse_smoke`), behavioral offscreen UI tests (`test_ui_smoke`,
+  viewer, tour). Zero first-party coverage: `hnt/cleanup.py`
+  (destructive "Clean up disk" path), `hnt/hardware.py`, the
+  `downloader.py` download path, `_fp16.py` (slow-only), `cli.py`
+  (direct tests only). Regular CI never exercises real
+  fp16/export/download paths (torch/weights skips).
+- Tooling config: no `[tool.ruff]`/mypy config in `pyproject.toml`
+  despite caches existing; no lint job in CI; `.ruff_cache/` missing
+  from `.gitignore`. README "130+ tests" stale (175 collected); docs
+  site documents only NERVE/HEART (PULSE family, video, T-NERVE,
+  D-NERVE, viewer, export window undocumented). mypy 30 HIGH-tier type
+  findings; deptry 545 (mostly vendored trainer); duplication 383.
+- `hnt/ui/main_window.py` at 1302 lines is the only oversized module —
+  main refactor candidate when UI work continues.

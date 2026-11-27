@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.ruff_cache/
 build/
 dist/
 *.egg-info/
@@ -16,3 +17,8 @@ packaging/vendor/uv.exe
 packaging/vendor/trainer/tb_logger/
 packaging/vendor/trainer/experiments/
 packaging/vendor/trainer/options/train/ABLATION/
+
+# polycheck run reports are point-in-time artifacts; the baseline travels
+# with the repo so `--diff` runs judge only new findings everywhere.
+polycheck-reports/*
+!polycheck-reports/polycheck-baseline.json
